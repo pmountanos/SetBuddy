@@ -8,13 +8,13 @@ import SwiftUI
 /// Edit one workout template: name, exercise names, set counts, per-side, order, add/remove exercises.
 struct WorkoutTemplateEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Bindable var viewModel: ProgramOverviewViewModel
+    @Bindable var viewModel: WorkoutTemplateEditorViewModel
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    TextField("Workout name", text: $viewModel.workoutEditorWorkoutName)
+                    TextField("Workout name", text: $viewModel.workoutName)
                         .textInputAutocapitalization(.words)
                 } footer: {
                     Text("Shown on Today and in the log. Saved when you tap Done.")
@@ -29,7 +29,7 @@ struct WorkoutTemplateEditorSheet: View {
                     .foregroundStyle(.secondary)
                 }
 
-                ForEach($viewModel.workoutEditorRows) { $row in
+                ForEach($viewModel.rows) { $row in
                     Section {
                         TextField("Exercise name", text: $row.name)
                             .onChange(of: row.name) { _, newValue in
@@ -63,7 +63,7 @@ struct WorkoutTemplateEditorSheet: View {
                 }
                 ToolbarItem(placement: .bottomBar) {
                     Button {
-                        viewModel.addExerciseToOpenWorkout()
+                        viewModel.addExercise()
                     } label: {
                         Label("Add exercise", systemImage: "plus.circle")
                     }

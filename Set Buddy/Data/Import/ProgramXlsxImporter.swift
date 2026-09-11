@@ -31,6 +31,28 @@ enum ProgramXlsxImporter {
         cycleStartIndex: Int = 0
     ) throws {
         let cycle = try ProgramXlsxParser.parse(xlsxData: xlsx)
+        try importReplacingStore(
+            cycle: cycle,
+            programName: programName,
+            startDate: startDate,
+            modelContext: modelContext,
+            calendar: calendar,
+            horizonDays: horizonDays,
+            cycleStartIndex: cycleStartIndex
+        )
+    }
+
+    /// Same as the `xlsx:` overload, but for callers (like the Settings import staging flow) that already parsed the
+    /// workbook once to show the cycle picker and don't need to parse it again to import.
+    static func importReplacingStore(
+        cycle: [XlsxCycleDay],
+        programName: String,
+        startDate: CalendarDate,
+        modelContext: ModelContext,
+        calendar: Calendar = .current,
+        horizonDays: Int = ProgramRepository.forwardScheduleHorizonDays,
+        cycleStartIndex: Int = 0
+    ) throws {
         try removeAllProgramsPreservingCompletedHistory(modelContext: modelContext)
 
         let program = PersistedProgram(name: programName)
@@ -104,8 +126,8 @@ enum ProgramXlsxImporter {
     }
 
     private static func backfillWorkoutTitleSnapshots(modelContext: ModelContext) throws {
-        let workouts = try modelContext.fetch(FetchDescriptor<PersistedWorkout>())
-        let titles = Dictionary(uniqueKeysWithValues: workouts.map { ($0.id, $0.name) })
+        let repo = ProgramRepository(modelContext: modelContext)
+        let titles = try repo.activeProgram().map { repo.workoutTitles(for: $0) } ?? [:]
         let sessions = try modelContext.fetch(FetchDescriptor<PersistedWorkoutSession>())
         for session in sessions where session.workoutTitleSnapshot == nil {
             if let name = titles[session.workoutTemplateId] {

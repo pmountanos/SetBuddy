@@ -54,9 +54,15 @@ struct HistoryRepository {
         self.modelContext = modelContext
     }
 
+    /// Titles for the active program's workouts, keyed by id (empty when there is no active program).
+    private func activeProgramWorkoutTitles() throws -> [UUID: String] {
+        let repo = ProgramRepository(modelContext: modelContext)
+        guard let program = try repo.activeProgram() else { return [:] }
+        return repo.workoutTitles(for: program)
+    }
+
     func completedRows(limit: Int = 50) throws -> [HistoryCompletedRow] {
-        let workouts = try modelContext.fetch(FetchDescriptor<PersistedWorkout>())
-        let titles = Dictionary(uniqueKeysWithValues: workouts.map { ($0.id, $0.name) })
+        let titles = try activeProgramWorkoutTitles()
         let sessions = try modelContext.fetch(FetchDescriptor<PersistedWorkoutSession>())
         return sessions
             .filter(\.isComplete)
@@ -87,8 +93,7 @@ struct HistoryRepository {
         let sessions = try modelContext.fetch(FetchDescriptor<PersistedWorkoutSession>())
         guard let session = sessions.first(where: { $0.id == sessionId && $0.isComplete }) else { return nil }
 
-        let workouts = try modelContext.fetch(FetchDescriptor<PersistedWorkout>())
-        let titles = Dictionary(uniqueKeysWithValues: workouts.map { ($0.id, $0.name) })
+        let titles = try activeProgramWorkoutTitles()
         let workoutTitle = session.workoutTitleSnapshot
             ?? titles[session.workoutTemplateId]
             ?? "Workout"

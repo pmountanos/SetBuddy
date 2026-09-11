@@ -56,9 +56,7 @@ final class TodayViewModel {
             loadError = error.localizedDescription
             status = nil
         }
-        Task {
-            await DailyNotificationScheduler.shared.reschedule(modelContext: modelContext)
-        }
+        DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
     }
 
     var headline: String {

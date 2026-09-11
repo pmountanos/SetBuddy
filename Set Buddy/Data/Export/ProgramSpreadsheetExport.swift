@@ -24,7 +24,7 @@ enum ProgramSpreadsheetExport {
         var usedSheetNames = Set<String>()
         var sheets: [(name: String, worksheetPath: String, worksheetData: Data)] = []
 
-        for (i, workout) in workouts.enumerated() {
+        for workout in workouts {
             let name = uniqueSheetName(workout.name, used: &usedSheetNames)
             let path = "xl/worksheets/sheet\(sheets.count + 1).xml"
             let exercises = workout.exercises.sorted { $0.sortOrder < $1.sortOrder }
@@ -53,18 +53,18 @@ enum ProgramSpreadsheetExport {
         }
         var lines: [String] = []
         lines.append("kind,program_name,,,")
-        lines.append("program,\(csvEscape(program.name)),,,")
+        lines.append("program,\(SpreadsheetFormatting.csvEscape(program.name)),,,")
 
         let workouts = program.workouts.sorted { a, b in
             WorkoutTemplateDisplaySort.compare(a.name, b.name)
         }
         for w in workouts {
-            lines.append("workout,\(csvEscape(w.name)),,,")
+            lines.append("workout,\(SpreadsheetFormatting.csvEscape(w.name)),,,")
             lines.append("column,sort_order,exercise_name,set_count,note,per_side")
             let exercises = w.exercises.sorted { $0.sortOrder < $1.sortOrder }
             for ex in exercises {
                 lines.append(
-                    "exercise,\(ex.sortOrder),\(csvEscape(ex.name)),\(ex.setCount),\(csvEscape(ex.note ?? "")),\(ex.repsArePerSide ? "yes" : "no")"
+                    "exercise,\(ex.sortOrder),\(SpreadsheetFormatting.csvEscape(ex.name)),\(ex.setCount),\(SpreadsheetFormatting.csvEscape(ex.note ?? "")),\(ex.repsArePerSide ? "yes" : "no")"
                 )
             }
         }
@@ -93,23 +93,13 @@ enum ProgramSpreadsheetExport {
                 lines.append("schedule,\(dateStr),rest,,")
             } else if let wid = e.workoutID,
                       let wname = workouts.first(where: { $0.id == wid })?.name {
-                lines.append("schedule,\(dateStr),workout,\(csvEscape(wname)),")
+                lines.append("schedule,\(dateStr),workout,\(SpreadsheetFormatting.csvEscape(wname)),")
             } else {
                 lines.append("schedule,\(dateStr),unknown,,")
             }
         }
 
-        var data = lines.joined(separator: "\n").data(using: .utf8) ?? Data()
-        // UTF-8 BOM helps Excel on Windows recognize encoding
-        let bom = Data([0xEF, 0xBB, 0xBF])
-        return bom + data
-    }
-
-    private static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
-            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return s
+        return SpreadsheetFormatting.csvData(lines: lines)
     }
 
     private static func uniqueSheetName(_ raw: String, used: inout Set<String>) -> String {

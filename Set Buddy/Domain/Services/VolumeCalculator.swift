@@ -12,10 +12,6 @@ enum VolumeCalculator {
         return repsArePerSide ? base * 2 : base
     }
 
-    nonisolated static func totalVolume<S: Sequence>(sets: S) -> Double where S.Element == (weight: Double, reps: Int) {
-        sets.reduce(0) { $0 + setVolume(weight: $1.weight, reps: $1.reps) }
-    }
-
     nonisolated static func totalVolume<S: Sequence>(sets: S) -> Double where S.Element == (weight: Double, reps: Int, repsArePerSide: Bool) {
         sets.reduce(0) { $0 + setVolume(weight: $1.weight, reps: $1.reps, repsArePerSide: $1.repsArePerSide) }
     }

@@ -44,7 +44,7 @@ struct MainTabView: View {
             if !UITestLaunch.isUITesting {
                 await NotificationPermission.requestIfNeeded()
             }
-            await DailyNotificationScheduler.shared.reschedule(modelContext: modelContext)
+            DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
         }
     }
 }

@@ -13,8 +13,32 @@ import Testing
 private final class ImportTestBundleToken {}
 private final class SetBuddy2FixtureToken {}
 
+/// `.serialized`: many tests here create their own in-memory `ModelContainer`. Swift Testing runs tests concurrently
+/// by default, and SwiftData's underlying persistent-store machinery isn't safe under that many containers being
+/// spun up in true parallel — it crashes with SIGTRAP under load (reproduced: 31/35 tests crashed when run unserialized,
+/// all in `ModelContext.fetch`). Running the suite's tests one at a time avoids the race.
+@Suite(.serialized)
 @MainActor
 struct Set_BuddyTests {
+    /// Fresh in-memory `ModelContainer`/`ModelContext` pair with the full schema — avoids repeating the same
+    /// `Schema`/`ModelConfiguration`/`ModelContainer` boilerplate in every persistence test.
+    ///
+    /// Returns the container alongside its context (not just the context): an in-memory `ModelContainer`'s store is
+    /// torn down when the container deallocates, and `container.mainContext` does not keep it alive on its own —
+    /// callers must hold the returned tuple for as long as they use `.context`, or fetches crash.
+    private static func makeInMemoryStore() throws -> (container: ModelContainer, context: ModelContext) {
+        let schema = Schema([
+            PersistedProgram.self,
+            PersistedWorkout.self,
+            PersistedScheduleEntry.self,
+            PersistedExercise.self,
+            PersistedWorkoutSession.self,
+            PersistedLoggedSet.self,
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        return (container, container.mainContext)
+    }
 
     @Test func calendarDateOrdersLexicographically() {
         let a = CalendarDate(year: 2026, month: 3, day: 21)
@@ -59,7 +83,7 @@ struct Set_BuddyTests {
 
     @Test func volumeCalculatorTotalsSets() {
         let parts: [(Double, Int)] = [(100, 5), (50, 10)]
-        let total = VolumeCalculator.totalVolume(sets: parts.map { (weight: $0.0, reps: $0.1) })
+        let total = VolumeCalculator.totalVolume(sets: parts.map { (weight: $0.0, reps: $0.1, repsArePerSide: false) })
         #expect(total == 100 * 5 + 50 * 10)
     }
 
@@ -549,5 +573,232 @@ struct Set_BuddyTests {
         #expect(detail?.exercises.first?.name == "Squat")
         #expect(detail?.exercises.first?.sets.count == 2)
         #expect(detail?.totalVolume == 1_000)
+    }
+
+    // MARK: - WorkoutSessionRepository sync
+
+    @Test func getOrCreateActiveSessionAddsRowsWhenTemplateGainsSets() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Squat", sortOrder: 0, setCount: 2)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(session.loggedSets.count == 2)
+
+        // Template gains a third set while the session is in progress.
+        exercise.setCount = 3
+        try context.save()
+        let resynced = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(resynced.loggedSets.count == 3)
+        #expect(resynced.id == session.id)
+    }
+
+    @Test func getOrCreateActiveSessionPrunesRowsWhenTemplateLosesSets() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Squat", sortOrder: 0, setCount: 4)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        _ = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+
+        exercise.setCount = 2
+        try context.save()
+        let resynced = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(resynced.loggedSets.count == 2)
+        #expect(resynced.loggedSets.allSatisfy { $0.setIndex < 2 })
+    }
+
+    @Test func getOrCreateActiveSessionSyncsPerSideFlagFromTemplate() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Curl", sortOrder: 0, setCount: 1, repsArePerSide: false)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(session.loggedSets.first?.repsArePerSide == false)
+
+        exercise.repsArePerSide = true
+        try context.save()
+        let resynced = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(resynced.loggedSets.first?.repsArePerSide == true)
+    }
+
+    @Test func updateLoggedSetMarksUserEnteredAndClampsNegativeValues() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench", sortOrder: 0, setCount: 1)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+
+        try repo.updateLoggedSet(session: session, exerciseId: exercise.id, setIndex: 0, weight: -10, reps: -5)
+        let row = try #require(session.loggedSets.first)
+        #expect(row.weight == 0)
+        #expect(row.reps == 0)
+        #expect(row.userEditedValues == true)
+    }
+
+    @Test func completeSessionDropsUnenteredRowsAndSnapshotsTitle() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench", sortOrder: 0, setCount: 2)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        try repo.updateLoggedSet(session: session, exerciseId: exercise.id, setIndex: 0, weight: 100, reps: 5)
+
+        try repo.completeSession(session, workoutTitle: "Day A")
+        #expect(session.isComplete == true)
+        #expect(session.workoutTitleSnapshot == "Day A")
+        #expect(session.loggedSets.count == 1)
+        #expect(session.loggedSets.first?.setIndex == 0)
+    }
+
+    // MARK: - ProgramRepository exercise editing
+
+    @Test func setExerciseNoteTrimsAndNilsEmptyText() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench", sortOrder: 0, setCount: 1)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let repo = ProgramRepository(modelContext: context)
+        try repo.setExerciseNote(id: exercise.id, note: "  Elbows tucked  ")
+        #expect(exercise.note == "Elbows tucked")
+
+        try repo.setExerciseNote(id: exercise.id, note: "   ")
+        #expect(exercise.note == nil)
+    }
+
+    @Test func setExerciseNameThrowsExerciseNotFoundForUnknownId() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        #expect(throws: ProgramEditingError.exerciseNotFound) {
+            try repo.setExerciseName(id: UUID(), name: "Anything")
+        }
+    }
+
+    // MARK: - WorkoutTemplateEditorViewModel
+
+    @Test func workoutTemplateEditorAddsDeletesAndReordersExercises() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        let program = try repo.createFirstProgram(name: "Test")
+        let workout = try #require(program.workouts.first)
+        let outline = try #require(try ProgramOutlineRepository(modelContext: context).activeProgramOutline())
+        let workoutOutline = try #require(outline.workouts.first { $0.id == workout.id })
+
+        let editor = WorkoutTemplateEditorViewModel(modelContext: context)
+        editor.present(workout: workoutOutline)
+        #expect(editor.rows.count == 1)
+
+        editor.addExercise()
+        #expect(editor.rows.count == 2)
+
+        editor.workoutName = "Renamed workout"
+        editor.persistTitleAndReset()
+        #expect(try repo.activeProgram()?.workouts.first?.name == "Renamed workout")
+        #expect(editor.workoutId == nil)
+        #expect(editor.rows.isEmpty)
+    }
+
+    // MARK: - Spreadsheet export
+
+    @Test func spreadsheetFormattingCsvEscapeQuotesSpecialCharacters() {
+        #expect(SpreadsheetFormatting.csvEscape("Plain") == "Plain")
+        #expect(SpreadsheetFormatting.csvEscape("a,b") == "\"a,b\"")
+        #expect(SpreadsheetFormatting.csvEscape("say \"hi\"") == "\"say \"\"hi\"\"\"")
+        #expect(SpreadsheetFormatting.csvEscape("line1\nline2") == "\"line1\nline2\"")
+    }
+
+    @Test func spreadsheetFormattingCsvDataStartsWithUtf8Bom() {
+        let data = SpreadsheetFormatting.csvData(lines: ["a,b", "1,2"])
+        #expect(data.prefix(3) == Data([0xEF, 0xBB, 0xBF]))
+        let text = String(data: data.dropFirst(3), encoding: .utf8)
+        #expect(text == "a,b\n1,2")
+    }
+
+    @Test @MainActor func programSpreadsheetExportXlsxRoundTripsThroughArchiveReader() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        let program = try repo.createFirstProgram(name: "Round Trip")
+
+        let data = try ProgramSpreadsheetExport.buildXlsx(program: program)
+        let workbookXml = try XlsxArchiveReader.extract("xl/workbook.xml", fromXlsx: data)
+        let workbookText = try #require(String(data: workbookXml, encoding: .utf8))
+        #expect(workbookText.contains("Workout 1"))
+
+        let sheetXml = try XlsxArchiveReader.extract("xl/worksheets/sheet1.xml", fromXlsx: data)
+        let sheetText = try #require(String(data: sheetXml, encoding: .utf8))
+        #expect(sheetText.contains("Exercise 1"))
+    }
+
+    @Test func programSpreadsheetExportCsvIncludesScheduleAndExercises() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        let program = try repo.createFirstProgram(name: "CSV Export")
+
+        let data = try ProgramSpreadsheetExport.buildCsv(program: program, calendar: .current)
+        let text = try #require(String(data: data.dropFirst(3), encoding: .utf8))
+        #expect(text.contains("program,CSV Export"))
+        #expect(text.contains("Exercise 1"))
+        #expect(text.contains("schedule,"))
     }
 }

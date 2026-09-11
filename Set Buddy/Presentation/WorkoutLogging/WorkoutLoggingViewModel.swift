@@ -181,11 +181,8 @@ final class WorkoutLoggingViewModel {
     }
 
     func saveExerciseNote(_ text: String) {
-        guard let workout, let eid = exerciseNoteExerciseId,
-              let ex = workout.exercises.first(where: { $0.id == eid })
-        else { return }
-        ex.note = text
-        try? modelContext.save()
+        guard let workout, let eid = exerciseNoteExerciseId else { return }
+        try? ProgramRepository(modelContext: modelContext).setExerciseNote(id: eid, note: text)
         exerciseNoteExerciseId = nil
         if let session {
             rebuildSections(workout: workout, session: session)
@@ -203,44 +200,32 @@ final class WorkoutLoggingViewModel {
 
     func saveSessionNote(_ text: String) {
         guard let session else { return }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        session.sessionNote = trimmed.isEmpty ? nil : trimmed
-        try? modelContext.save()
+        try? WorkoutSessionRepository(modelContext: modelContext).setSessionNote(session, note: text)
         sessionNoteRefreshStamp += 1
         sessionNoteSheetPresented = false
     }
 
-
     /// Parses both fields; updates the model only when `markUserEntry` is true (user changed something vs. reference / focus snapshot).
     func updateLoggedSet(exerciseId: UUID, setIndex: Int, weight: Double, reps: Int, markUserEntry: Bool) {
-        guard let session, let w = workout,
-              let logged = session.loggedSets.first(where: { $0.exerciseId == exerciseId && $0.setIndex == setIndex })
-        else { return }
-        if markUserEntry {
-            logged.weight = max(0, weight)
-            logged.reps = max(0, reps)
-            logged.userEditedValues = true
-            try? modelContext.save()
-            rebuildSections(workout: w, session: session)
-        }
+        guard markUserEntry, let session, let w = workout else { return }
+        try? WorkoutSessionRepository(modelContext: modelContext).updateLoggedSet(
+            session: session,
+            exerciseId: exerciseId,
+            setIndex: setIndex,
+            weight: weight,
+            reps: reps
+        )
+        rebuildSections(workout: w, session: session)
     }
 
     func completeWorkout() {
         guard let s = session else { return }
-        for logged in s.loggedSets where !logged.userEditedValues {
-            modelContext.delete(logged)
-        }
-        s.workoutTitleSnapshot = workoutTitle ?? "Workout"
-        s.isComplete = true
-        s.completedAt = Date()
-        try? modelContext.save()
+        try? WorkoutSessionRepository(modelContext: modelContext).completeSession(s, workoutTitle: workoutTitle ?? "Workout")
         router.selectedWorkoutId = nil
         workout = nil
         session = nil
         workoutTitle = nil
         sections = []
-        Task {
-            await DailyNotificationScheduler.shared.reschedule(modelContext: modelContext)
-        }
+        DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
     }
 }

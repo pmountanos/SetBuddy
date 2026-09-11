@@ -211,9 +211,12 @@ struct ProgramRepository {
     }
 
     func renameWorkout(id: UUID, to name: String) throws {
-        guard let program = try activeProgram() else { return }
+        guard let program = try activeProgram() else { throw ProgramEditingError.noActiveProgram }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let w = program.workouts.first(where: { $0.id == id }) else { return }
+        guard !trimmed.isEmpty else { return }
+        guard let w = program.workouts.first(where: { $0.id == id }) else {
+            throw ProgramEditingError.workoutNotFound
+        }
         w.name = trimmed
         try modelContext.save()
     }
@@ -388,9 +391,16 @@ struct ProgramRepository {
         try modelContext.save()
     }
 
+    /// Looks up a template exercise by id, throwing `.exerciseNotFound` instead of the silent no-ops the setters below used to do.
+    private func requireExercise(id: UUID) throws -> PersistedExercise {
+        guard let ex = try modelContext.first(PersistedExercise.self, matching: #Predicate<PersistedExercise> { $0.id == id }) else {
+            throw ProgramEditingError.exerciseNotFound
+        }
+        return ex
+    }
+
     func deleteExercise(id: UUID) throws {
-        let all = try modelContext.fetch(FetchDescriptor<PersistedExercise>())
-        guard let ex = all.first(where: { $0.id == id }) else { return }
+        let ex = try requireExercise(id: id)
         guard let workout = ex.workout else {
             modelContext.delete(ex)
             try modelContext.save()
@@ -405,25 +415,30 @@ struct ProgramRepository {
     }
 
     func setExerciseName(id: UUID, name: String) throws {
-        let all = try modelContext.fetch(FetchDescriptor<PersistedExercise>())
-        guard let ex = all.first(where: { $0.id == id }) else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let ex = try requireExercise(id: id)
         ex.name = trimmed
         try modelContext.save()
     }
 
     func setExerciseSetCount(id: UUID, setCount: Int) throws {
-        let all = try modelContext.fetch(FetchDescriptor<PersistedExercise>())
-        guard let ex = all.first(where: { $0.id == id }) else { return }
+        let ex = try requireExercise(id: id)
         ex.setCount = max(1, min(20, setCount))
         try modelContext.save()
     }
 
     func setExerciseRepsPerSide(id: UUID, value: Bool) throws {
-        let all = try modelContext.fetch(FetchDescriptor<PersistedExercise>())
-        guard let ex = all.first(where: { $0.id == id }) else { return }
+        let ex = try requireExercise(id: id)
         ex.repsArePerSide = value
+        try modelContext.save()
+    }
+
+    /// Trims and nils out empty text — parity with `setExerciseName`. Used by both the Program tab and the workout logger so note-saving isn’t duplicated per screen.
+    func setExerciseNote(id: UUID, note: String?) throws {
+        let ex = try requireExercise(id: id)
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ex.note = (trimmed?.isEmpty ?? true) ? nil : trimmed
         try modelContext.save()
     }
 
@@ -444,6 +459,8 @@ struct ProgramRepository {
 enum ProgramEditingError: Error {
     case noActiveProgram
     case programAlreadyExists
+    case workoutNotFound
+    case exerciseNotFound
 }
 
 extension ProgramEditingError: LocalizedError {
@@ -453,6 +470,10 @@ extension ProgramEditingError: LocalizedError {
             "No active program."
         case .programAlreadyExists:
             "A program is already set up. Use Settings → Import to replace it with a spreadsheet."
+        case .workoutNotFound:
+            "That workout no longer exists."
+        case .exerciseNotFound:
+            "That exercise no longer exists."
         }
     }
 }

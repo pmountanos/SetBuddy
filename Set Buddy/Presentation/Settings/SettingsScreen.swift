@@ -23,6 +23,9 @@ struct SettingsScreen: View {
 
     var body: some View {
         @Bindable var viewModel = viewModel
+        @Bindable var notifications = viewModel.notifications
+        @Bindable var importer = viewModel.importer
+        @Bindable var exporter = viewModel.exporter
         return NavigationStack {
             Form {
                 Section {
@@ -36,25 +39,25 @@ struct SettingsScreen: View {
                 }
 
                 Section {
-                    Toggle("Daily plan reminder", isOn: $viewModel.dailyNotificationsEnabled)
+                    Toggle("Daily plan reminder", isOn: $notifications.dailyNotificationsEnabled)
 
-                    if viewModel.dailyNotificationsEnabled {
+                    if notifications.dailyNotificationsEnabled {
                         DatePicker(
                             "Reminder time",
-                            selection: $viewModel.notificationReminderTime,
+                            selection: $notifications.notificationReminderTime,
                             displayedComponents: [.hourAndMinute]
                         )
                     }
 
-                    if viewModel.notificationShowAllowButton {
+                    if notifications.notificationShowAllowButton {
                         Button("Allow notifications") {
                             Task {
-                                await viewModel.requestNotificationAuthorizationAndReschedule(modelContext: modelContext)
+                                await notifications.requestAuthorizationAndReschedule(modelContext: modelContext)
                             }
                         }
                     }
 
-                    if viewModel.notificationShowOpenSettingsButton {
+                    if notifications.notificationShowOpenSettingsButton {
                         Button("Open system settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 openURL(url)
@@ -62,8 +65,8 @@ struct SettingsScreen: View {
                         }
                     }
 
-                    if !viewModel.notificationAuthorizationExplanation.isEmpty {
-                        Text(viewModel.notificationAuthorizationExplanation)
+                    if !notifications.notificationAuthorizationExplanation.isEmpty {
+                        Text(notifications.notificationAuthorizationExplanation)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -94,21 +97,21 @@ struct SettingsScreen: View {
                     } label: {
                         Label("Import program (.xlsx)", systemImage: "square.and.arrow.down")
                     }
-                    .disabled(viewModel.isImporting)
+                    .disabled(importer.isImporting)
 
-                    if viewModel.isImporting {
+                    if importer.isImporting {
                         HStack {
                             ProgressView()
                             Text("Importing…")
                         }
                     }
 
-                    if let message = viewModel.importMessage {
+                    if let message = importer.importMessage {
                         Text(message)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    if let err = viewModel.importError {
+                    if let err = importer.importError {
                         Text(err)
                             .font(.footnote)
                             .foregroundStyle(.red)
@@ -123,22 +126,22 @@ struct SettingsScreen: View {
 
                 Section {
                     Button {
-                        viewModel.exportProgram(modelContext: modelContext)
+                        exporter.exportProgram(modelContext: modelContext)
                     } label: {
                         Label("Export program", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(viewModel.isImporting || viewModel.isExporting)
+                    .disabled(importer.isImporting || exporter.isExporting)
                     .accessibilityIdentifier("settingsExportProgramButton")
 
                     Button {
-                        viewModel.exportHistory(modelContext: modelContext)
+                        exporter.exportHistory(modelContext: modelContext)
                     } label: {
                         Label("Export workout history", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(viewModel.isImporting || viewModel.isExporting)
+                    .disabled(importer.isImporting || exporter.isExporting)
                     .accessibilityIdentifier("settingsExportHistoryButton")
 
-                    if let err = viewModel.exportError {
+                    if let err = exporter.exportError {
                         Text(err)
                             .font(.footnote)
                             .foregroundStyle(.red)
@@ -153,18 +156,18 @@ struct SettingsScreen: View {
             }
             .navigationTitle("Settings")
             .task {
-                await viewModel.refreshNotificationAuthorizationStatus()
+                await notifications.refreshAuthorizationStatus()
             }
-            .onChange(of: viewModel.dailyNotificationsEnabled) { _, _ in
-                Task { await viewModel.rescheduleNotifications(modelContext: modelContext) }
+            .onChange(of: notifications.dailyNotificationsEnabled) { _, _ in
+                DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
             }
-            .onChange(of: viewModel.notificationReminderTime) { _, _ in
-                Task { await viewModel.rescheduleNotifications(modelContext: modelContext) }
+            .onChange(of: notifications.notificationReminderTime) { _, _ in
+                DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task {
-                    await viewModel.refreshNotificationAuthorizationStatus()
-                    await viewModel.rescheduleNotifications(modelContext: modelContext)
+                    await notifications.refreshAuthorizationStatus()
+                    DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
                 }
             }
             .fileImporter(
@@ -175,31 +178,31 @@ struct SettingsScreen: View {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    viewModel.stageImportFromPickedFile(url: url)
+                    importer.stageImportFromPickedFile(url: url)
                 case .failure(let error):
                     Task { @MainActor in
-                        viewModel.importError = error.localizedDescription
+                        importer.importError = error.localizedDescription
                     }
                 }
             }
-            .sheet(item: $viewModel.exportPresentation) { item in
+            .sheet(item: $exporter.exportPresentation) { item in
                 ShareExportSheet(items: [item.url]) {
-                    viewModel.finishExportSharing()
+                    exporter.finishExportSharing()
                 }
             }
-            .sheet(isPresented: $viewModel.importStagingPresented) {
+            .sheet(isPresented: $importer.importStagingPresented) {
                 NavigationStack {
                     Form {
-                        if !viewModel.stagedCycleDayLabels.isEmpty {
-                            Picker("Next workout in cycle", selection: $viewModel.stagedSelectedCycleDayIndex) {
-                                ForEach(Array(viewModel.stagedCycleDayLabels.enumerated()), id: \.offset) { pair in
+                        if !importer.stagedCycleDayLabels.isEmpty {
+                            Picker("Next workout in cycle", selection: $importer.stagedSelectedCycleDayIndex) {
+                                ForEach(Array(importer.stagedCycleDayLabels.enumerated()), id: \.offset) { pair in
                                     Text(pair.element).tag(pair.offset)
                                 }
                             }
                         }
                         DatePicker(
                             "First day on calendar",
-                            selection: $viewModel.importScheduleStartDate,
+                            selection: $importer.importScheduleStartDate,
                             displayedComponents: [.date]
                         )
                     }
@@ -208,16 +211,16 @@ struct SettingsScreen: View {
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Cancel") {
-                                viewModel.cancelStagedImport()
+                                importer.cancelStagedImport()
                             }
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Import") {
                                 Task {
-                                    await viewModel.confirmStagedImport(modelContext: modelContext)
+                                    await importer.confirmStagedImport(modelContext: modelContext)
                                 }
                             }
-                            .disabled(viewModel.isImporting || viewModel.stagedCycleDayLabels.isEmpty)
+                            .disabled(importer.isImporting || importer.stagedCycleDayLabels.isEmpty)
                         }
                     }
                 }

@@ -30,6 +30,21 @@ enum SpreadsheetFormatting {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
+    /// Quotes a CSV field when it contains a comma, quote, or newline (doubling embedded quotes).
+    static func csvEscape(_ s: String) -> String {
+        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
+            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return s
+    }
+
+    /// UTF-8 CSV with a leading BOM (Excel-on-Windows encoding hint) and `\n`-joined rows.
+    static func csvData(lines: [String]) -> Data {
+        let bom = Data([0xEF, 0xBB, 0xBF])
+        let body = lines.joined(separator: "\n").data(using: .utf8) ?? Data()
+        return bom + body
+    }
+
     enum CellValue {
         case text(String)
         case number(Double)

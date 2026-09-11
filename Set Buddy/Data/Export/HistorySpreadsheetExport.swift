@@ -87,11 +87,11 @@ enum HistorySpreadsheetExport {
         let dateFmt = historyDateFormatter()
 
         for session in sessions {
-            let dateStr = csvEscape(dateFmt.string(from: session.completedAt))
-            let title = csvEscape(session.workoutTitle)
-            let sched = csvEscape(session.scheduleDayLabel ?? "")
+            let dateStr = SpreadsheetFormatting.csvEscape(dateFmt.string(from: session.completedAt))
+            let title = SpreadsheetFormatting.csvEscape(session.workoutTitle)
+            let sched = SpreadsheetFormatting.csvEscape(session.scheduleDayLabel ?? "")
             let tv = String(session.totalVolume)
-            let note = csvEscape(session.sessionNote ?? "")
+            let note = SpreadsheetFormatting.csvEscape(session.sessionNote ?? "")
             var daySetVolumeSum = 0.0
             for group in session.exercises {
                 for line in group.sets {
@@ -102,7 +102,7 @@ enum HistorySpreadsheetExport {
                     )
                     daySetVolumeSum += vol
                     lines.append(
-                        "\(dateStr),\(title),\(sched),\(tv),\(csvEscape(group.name)),\(line.setNumber),\(line.weight),\(line.reps),\(line.repsArePerSide ? "yes" : "no"),\(vol),\(note)"
+                        "\(dateStr),\(title),\(sched),\(tv),\(SpreadsheetFormatting.csvEscape(group.name)),\(line.setNumber),\(line.weight),\(line.reps),\(line.repsArePerSide ? "yes" : "no"),\(vol),\(note)"
                     )
                 }
             }
@@ -111,9 +111,7 @@ enum HistorySpreadsheetExport {
             )
         }
 
-        let bom = Data([0xEF, 0xBB, 0xBF])
-        let body = lines.joined(separator: "\n").data(using: .utf8) ?? Data()
-        return bom + body
+        return SpreadsheetFormatting.csvData(lines: lines)
     }
 
     private static func historyDateFormatter() -> DateFormatter {
@@ -122,12 +120,5 @@ enum HistorySpreadsheetExport {
         f.timeZone = TimeZone.current
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return f
-    }
-
-    private static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
-            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return s
     }
 }

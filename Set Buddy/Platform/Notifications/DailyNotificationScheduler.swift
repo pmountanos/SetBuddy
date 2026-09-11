@@ -15,6 +15,15 @@ final class DailyNotificationScheduler {
 
     private init() {}
 
+    /// Fire-and-forget entry point for code that changed something affecting the schedule (program, calendar, a completed
+    /// session, or notification prefs). The single place every call site should use instead of wrapping `reschedule(modelContext:)`
+    /// in its own `Task` — keeps “remember to reschedule after this mutation” from being repeated at every call site.
+    static func requestReschedule(modelContext: ModelContext) {
+        Task { @MainActor in
+            await shared.reschedule(modelContext: modelContext)
+        }
+    }
+
     /// Schedules one local notification per calendar day for the next `horizonDays`, using the same date-based schedule as the Today screen.
     func reschedule(modelContext: ModelContext, horizonDays: Int = 14) async {
         let center = UNUserNotificationCenter.current()

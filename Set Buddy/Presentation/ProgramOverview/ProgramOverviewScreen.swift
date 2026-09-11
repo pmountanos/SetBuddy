@@ -235,11 +235,11 @@ private struct ProgramOverviewContent: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .sheet(isPresented: $viewModel.workoutEditorPresented, onDismiss: {
+                .sheet(isPresented: $viewModel.workoutEditor.presented, onDismiss: {
                     // Persist workout title and clear editor state after dismiss (Done or swipe).
                     viewModel.onWorkoutEditorDismissed()
                 }) {
-                    WorkoutTemplateEditorSheet(viewModel: viewModel)
+                    WorkoutTemplateEditorSheet(viewModel: viewModel.workoutEditor)
                 }
                 .sheet(isPresented: $viewModel.exerciseNoteSheetPresented, onDismiss: {
                     viewModel.onExerciseNoteEditorDismissed()
