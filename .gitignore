@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Build products / archives / exports
+build/
+*.xcarchive/
+*.ipa
+DistributionSummary.plist
+Packaging.log
+ExportOptions.plist
+
+# SwiftPM
+.swiftpm/
+.build/
