@@ -15,6 +15,16 @@ private var xlsxContentType: UTType {
     return .data
 }
 
+/// "Version 1.0 (2)" — from `CFBundleShortVersionString` / `CFBundleVersion` (Xcode's `MARKETING_VERSION` /
+/// `CURRENT_PROJECT_VERSION`), shown at the bottom of Settings and baked into exported `.ipa` filenames by the
+/// archive scripts so a build on-device can always be matched back to what was shipped.
+private var appVersionString: String {
+    let info = Bundle.main.infoDictionary
+    let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+    let build = info?["CFBundleVersion"] as? String ?? "—"
+    return "Version \(version) (\(build))"
+}
+
 struct SettingsScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
@@ -153,6 +163,17 @@ struct SettingsScreen: View {
                         "Spreadsheet exports use the date and time in the file name (Set_Buddy_Program_… or Set_Buddy_History_…). Program workbooks use one sheet per workout with the same columns as import (Exercise_Name, Notes, Per side). The CSV program export also includes the calendar schedule. History includes every completed set. Prefer .xlsx; if that fails, a .csv file is offered instead."
                     )
                 }
+
+                Section {
+                    HStack {
+                        Spacer()
+                        Text(appVersionString)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                .listRowBackground(Color.clear)
             }
             .navigationTitle("Settings")
             .task {
