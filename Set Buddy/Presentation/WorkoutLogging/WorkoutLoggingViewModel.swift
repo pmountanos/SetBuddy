@@ -129,7 +129,7 @@ final class WorkoutLoggingViewModel {
 
     private func rebuildSections(workout: PersistedWorkout, session: PersistedWorkoutSession) {
         let sessionRepo = WorkoutSessionRepository(modelContext: modelContext)
-        let prev = try? sessionRepo.mostRecentCompletedSession(templateId: workout.id)
+        let referenceValues = (try? sessionRepo.mostRecentLoggedValuesByExercise()) ?? [:]
         let ordered = workout.exercises.sorted { $0.sortOrder < $1.sortOrder }
         var result: [ExerciseSection] = []
         for exercise in ordered {
@@ -139,9 +139,9 @@ final class WorkoutLoggingViewModel {
                 let weight = logged?.weight ?? 0
                 let reps = logged?.reps ?? 0
                 let isEntered = logged?.userEditedValues ?? false
-                let refMatch = prev?.loggedSets.first { $0.exerciseId == exercise.id && $0.setIndex == setIdx }
-                let referenceWeight = refMatch.map(\.weight) ?? 0
-                let referenceReps = refMatch.map(\.reps) ?? 0
+                let refMatch = referenceValues[exercise.id]?[setIdx]
+                let referenceWeight = refMatch?.weight ?? 0
+                let referenceReps = refMatch?.reps ?? 0
                 rows.append(
                     SetRow(
                         id: "\(exercise.id.uuidString)-\(setIdx)",

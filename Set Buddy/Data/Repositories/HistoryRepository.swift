@@ -61,6 +61,18 @@ struct HistoryRepository {
         return repo.workoutTitles(for: program)
     }
 
+    /// Names for the active program's exercises, keyed by id (empty when there is no active program).
+    private func currentProgramExerciseNames() throws -> [UUID: String] {
+        guard let program = try ProgramRepository(modelContext: modelContext).activeProgram() else { return [:] }
+        var names: [UUID: String] = [:]
+        for workout in program.workouts {
+            for exercise in workout.exercises {
+                names[exercise.id] = exercise.name
+            }
+        }
+        return names
+    }
+
     func completedRows(limit: Int = 50) throws -> [HistoryCompletedRow] {
         let titles = try activeProgramWorkoutTitles()
         let sessions = try modelContext.fetch(FetchDescriptor<PersistedWorkoutSession>())
@@ -118,9 +130,15 @@ struct HistoryRepository {
         }
         orderedIds.append(contentsOf: remaining)
 
+        // Exercises carried over at import time (ExerciseCarryoverMatcher) keep their id, so a session logged
+        // under a workout template that's since been replaced can still resolve its exercise names via the
+        // *current* program instead of falling back to "Exercise".
+        let currentExerciseNames = try currentProgramExerciseNames()
         func name(for exerciseId: UUID) -> String {
-            guard let template else { return "Exercise" }
-            return template.exercises.first(where: { $0.id == exerciseId })?.name ?? "Exercise"
+            if let name = template?.exercises.first(where: { $0.id == exerciseId })?.name {
+                return name
+            }
+            return currentExerciseNames[exerciseId] ?? "Exercise"
         }
 
         var exerciseGroups: [HistorySessionExerciseGroup] = []

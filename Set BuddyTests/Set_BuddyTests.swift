@@ -861,4 +861,180 @@ struct Set_BuddyTests {
         #expect(entry(daysFromToday: 1)?.workoutID == workoutA.id)
         #expect(entry(daysFromToday: 2)?.workoutID == workoutB.id)
     }
+
+    // MARK: - StringSimilarity
+
+    @Test func stringSimilarityIdenticalStringsScoreOne() {
+        #expect(StringSimilarity.ratio("bench press", "bench press") == 1.0)
+    }
+
+    @Test func stringSimilarityCompletelyDifferentStringsScoreLow() {
+        #expect(StringSimilarity.ratio("bench press", "squat") < 0.3)
+    }
+
+    @Test func stringSimilarityCloseTypoScoresAboveFuzzyThreshold() {
+        // Missing one letter out of 12 ("Bench Press" -> "Bench Pres").
+        #expect(StringSimilarity.ratio("bench press", "bench pres") >= ExerciseCarryoverMatcher.fuzzyThreshold)
+    }
+
+    // MARK: - ExerciseCarryoverMatcher
+
+    @Test func exerciseCarryoverMatcherAutoMatchesExactNamesCaseInsensitively() {
+        let old = [ExerciseCarryoverMatcher.ExistingExercise(id: UUID(), name: "Bench Press")]
+        let cycle = [
+            XlsxCycleDay(sheetName: "Push 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "  bench press  ", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let result = ExerciseCarryoverMatcher.match(existing: old, newCycle: cycle)
+        let ref = ImportExerciseRef(workoutSheetName: "Push 1", exerciseName: "  bench press  ")
+        #expect(result.autoCarryover[ref] == old[0].id)
+        #expect(result.suggestions.isEmpty)
+    }
+
+    @Test func exerciseCarryoverMatcherSuggestsCloseNonExactMatches() {
+        let old = [ExerciseCarryoverMatcher.ExistingExercise(id: UUID(), name: "Bench Press")]
+        let cycle = [
+            XlsxCycleDay(sheetName: "Push 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Bench Pres", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let result = ExerciseCarryoverMatcher.match(existing: old, newCycle: cycle)
+        #expect(result.autoCarryover.isEmpty)
+        #expect(result.suggestions.count == 1)
+        #expect(result.suggestions.first?.oldExerciseId == old[0].id)
+        #expect(result.suggestions.first?.oldExerciseName == "Bench Press")
+        #expect(result.suggestions.first?.newExercise.exerciseName == "Bench Pres")
+    }
+
+    @Test func exerciseCarryoverMatcherIgnoresUnrelatedNames() {
+        let old = [ExerciseCarryoverMatcher.ExistingExercise(id: UUID(), name: "Bench Press")]
+        let cycle = [
+            XlsxCycleDay(sheetName: "Legs 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Back Squat", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let result = ExerciseCarryoverMatcher.match(existing: old, newCycle: cycle)
+        #expect(result.autoCarryover.isEmpty)
+        #expect(result.suggestions.isEmpty)
+    }
+
+    @Test func exerciseCarryoverMatcherGreedilyAssignsBestPairsWithoutDoubleClaiming() {
+        let benchId = UUID()
+        let machineId = UUID()
+        let old = [
+            ExerciseCarryoverMatcher.ExistingExercise(id: benchId, name: "Bench Press"),
+            ExerciseCarryoverMatcher.ExistingExercise(id: machineId, name: "Bench Press Machine"),
+        ]
+        let cycle = [
+            XlsxCycleDay(sheetName: "Push 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Bench Pres", note: nil, repsArePerSide: false),
+                XlsxImportedExercise(name: "Bench Press Machin", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let result = ExerciseCarryoverMatcher.match(existing: old, newCycle: cycle)
+        #expect(result.suggestions.count == 2)
+        let byNewName = Dictionary(uniqueKeysWithValues: result.suggestions.map { ($0.newExercise.exerciseName, $0.oldExerciseId) })
+        #expect(byNewName["Bench Pres"] == benchId)
+        #expect(byNewName["Bench Press Machin"] == machineId)
+    }
+
+    // MARK: - Import carryover end to end
+
+    /// Re-importing with an exact exercise-name match should reuse the old exercise's id, which keeps
+    /// `WorkoutSessionRepository.mostRecentLoggedValuesByExercise` (and therefore the workout logger's reference
+    /// weight hints) finding history logged before the import.
+    @Test @MainActor func reimportWithMatchedExerciseNameCarriesOverReferenceWeight() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let program = PersistedProgram(name: "Old Program")
+        let workout = PersistedWorkout(name: "Push 1")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench Press", sortOrder: 0, setCount: 1)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+
+        let session = PersistedWorkoutSession(
+            workoutTemplateId: workout.id,
+            scheduleYear: 2026, scheduleMonth: 1, scheduleDay: 1
+        )
+        session.isComplete = true
+        session.completedAt = Date()
+        session.workoutTitleSnapshot = "Push 1"
+        let loggedSet = PersistedLoggedSet(exerciseId: exercise.id, setIndex: 0, weight: 100, reps: 5)
+        loggedSet.userEditedValues = true
+        loggedSet.session = session
+        session.loggedSets.append(loggedSet)
+
+        context.insert(program)
+        context.insert(session)
+        try context.save()
+
+        let oldExerciseId = exercise.id
+        let existing = [ExerciseCarryoverMatcher.ExistingExercise(id: oldExerciseId, name: "Bench Press")]
+        let newCycle = [
+            XlsxCycleDay(sheetName: "Push 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Bench Press", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let matchResult = ExerciseCarryoverMatcher.match(existing: existing, newCycle: newCycle)
+        #expect(matchResult.autoCarryover.count == 1)
+
+        try ProgramXlsxImporter.importReplacingStore(
+            cycle: newCycle,
+            programName: "New Program",
+            startDate: CalendarDate(year: 2026, month: 1, day: 2),
+            modelContext: context,
+            horizonDays: 3,
+            exerciseCarryover: matchResult.autoCarryover
+        )
+
+        let newProgram = try #require(try ProgramRepository(modelContext: context).activeProgram())
+        let newExercise = try #require(newProgram.workouts.first?.exercises.first)
+        #expect(newExercise.id == oldExerciseId)
+
+        let referenceValues = try WorkoutSessionRepository(modelContext: context).mostRecentLoggedValuesByExercise()
+        #expect(referenceValues[oldExerciseId]?[0]?.weight == 100)
+        #expect(referenceValues[oldExerciseId]?[0]?.reps == 5)
+
+        // History for the old session should also resolve the exercise name via the current program's carried-over id,
+        // even though the workout template it was originally logged under is gone.
+        let detail = try #require(try HistoryRepository(modelContext: context).sessionDetail(sessionId: session.id))
+        #expect(detail.exercises.first?.name == "Bench Press")
+    }
+
+    @Test @MainActor func reimportWithUnmatchedExerciseNameGetsFreshIdAndNoReference() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let program = PersistedProgram(name: "Old Program")
+        let workout = PersistedWorkout(name: "Push 1")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench Press", sortOrder: 0, setCount: 1)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        // No carryover map supplied — matches the default `importReplacingStore` behavior before this feature existed.
+        let newCycle = [
+            XlsxCycleDay(sheetName: "Push 1", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Overhead Press", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        try ProgramXlsxImporter.importReplacingStore(
+            cycle: newCycle,
+            programName: "New Program",
+            startDate: CalendarDate(year: 2026, month: 1, day: 2),
+            modelContext: context,
+            horizonDays: 3
+        )
+
+        let newProgram = try #require(try ProgramRepository(modelContext: context).activeProgram())
+        let newExercise = try #require(newProgram.workouts.first?.exercises.first)
+        #expect(newExercise.id != exercise.id)
+    }
 }

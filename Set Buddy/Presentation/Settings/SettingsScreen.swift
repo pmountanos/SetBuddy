@@ -178,7 +178,7 @@ struct SettingsScreen: View {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    importer.stageImportFromPickedFile(url: url)
+                    importer.stageImportFromPickedFile(url: url, modelContext: modelContext)
                 case .failure(let error):
                     Task { @MainActor in
                         importer.importError = error.localizedDescription
@@ -205,6 +205,41 @@ struct SettingsScreen: View {
                             selection: $importer.importScheduleStartDate,
                             displayedComponents: [.date]
                         )
+
+                        if importer.stagedAutoCarryoverCount > 0 || !importer.stagedCarryoverSuggestions.isEmpty {
+                            Section {
+                                if importer.stagedAutoCarryoverCount > 0 {
+                                    Text(
+                                        "\(importer.stagedAutoCarryoverCount) exercise\(importer.stagedAutoCarryoverCount == 1 ? "" : "s") matched by name — reference weights carry over automatically."
+                                    )
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                }
+                                ForEach(importer.stagedCarryoverSuggestions) { suggestion in
+                                    Toggle(isOn: Binding(
+                                        get: { importer.stagedConfirmedSuggestionIds.contains(suggestion.id) },
+                                        set: { isOn in
+                                            if isOn {
+                                                importer.stagedConfirmedSuggestionIds.insert(suggestion.id)
+                                            } else {
+                                                importer.stagedConfirmedSuggestionIds.remove(suggestion.id)
+                                            }
+                                        }
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(suggestion.newExercise.exerciseName)
+                                            Text("Carry over weights from “\(suggestion.oldExerciseName)”?")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            } header: {
+                                Text("Carry over previous weights")
+                            } footer: {
+                                Text("These new exercise names are close to ones in your current program but not identical. Turn off any that aren’t actually the same exercise.")
+                            }
+                        }
                     }
                     .navigationTitle("Import program")
                     .navigationBarTitleDisplayMode(.inline)

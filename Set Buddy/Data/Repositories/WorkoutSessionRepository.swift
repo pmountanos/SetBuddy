@@ -68,17 +68,26 @@ struct WorkoutSessionRepository {
         return session
     }
 
-    /// Latest finished session for this workout template (by completion or creation time).
-    func mostRecentCompletedSession(templateId: UUID) throws -> PersistedWorkoutSession? {
-        let descriptor = FetchDescriptor<PersistedWorkoutSession>(
-            predicate: #Predicate<PersistedWorkoutSession> { $0.workoutTemplateId == templateId && $0.isComplete }
-        )
-        let matches = try modelContext.fetch(descriptor)
-        return matches.max(by: { a, b in
-            let ad = a.completedAt ?? a.createdAt
-            let bd = b.completedAt ?? b.createdAt
-            return ad < bd
-        })
+    /// Most recent logged value for each (exercise, set position), across **all** completed sessions regardless of
+    /// workout — not just the current workout template. Scoping by exercise id rather than workout id is what keeps
+    /// `WorkoutLoggingViewModel`'s reference-weight hints working after a program re-import: exercises carried over
+    /// by `ExerciseCarryoverMatcher` keep their id, so their logged history is still found here even though the
+    /// workout template that originally held them was replaced.
+    func mostRecentLoggedValuesByExercise() throws -> [UUID: [Int: PersistedLoggedSet]] {
+        let sessions = try modelContext.fetch(FetchDescriptor<PersistedWorkoutSession>(
+            predicate: #Predicate<PersistedWorkoutSession> { $0.isComplete }
+        ))
+        var bestDate: [UUID: [Int: Date]] = [:]
+        var best: [UUID: [Int: PersistedLoggedSet]] = [:]
+        for session in sessions {
+            let sessionDate = session.completedAt ?? session.createdAt
+            for row in session.loggedSets {
+                if let existing = bestDate[row.exerciseId]?[row.setIndex], existing >= sessionDate { continue }
+                bestDate[row.exerciseId, default: [:]][row.setIndex] = sessionDate
+                best[row.exerciseId, default: [:]][row.setIndex] = row
+            }
+        }
+        return best
     }
 
     /// Records a user-entered set value; only ever called with `markUserEntry == true` at the call site.

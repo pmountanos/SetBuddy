@@ -24,6 +24,14 @@ final class ImportViewModel {
     var stagedCycleDayLabels: [String] = []
     var stagedSelectedCycleDayIndex: Int = 0
 
+    /// Exact-name matches against the program being replaced — applied without asking; count shown for reassurance.
+    private var stagedAutoCarryover: [ImportExerciseRef: UUID] = [:]
+    var stagedAutoCarryoverCount: Int { stagedAutoCarryover.count }
+    /// Close-but-not-exact matches, offered for the user to confirm before being carried over.
+    var stagedCarryoverSuggestions: [ExerciseCarryoverMatcher.Suggestion] = []
+    /// Suggestion ids the user wants applied; defaults to all suggestions since `>= 75%` similarity is usually right.
+    var stagedConfirmedSuggestionIds: Set<UUID> = []
+
     /// First calendar day mapped to worksheet 1 (tab order) when importing.
     var importScheduleStartDate: Date {
         didSet {
@@ -42,8 +50,9 @@ final class ImportViewModel {
         }
     }
 
-    /// Reads and validates the spreadsheet, then opens the staging sheet (cycle picker + start date).
-    func stageImportFromPickedFile(url: URL) {
+    /// Reads and validates the spreadsheet, matches its exercises against the program being replaced (by name, for
+    /// carrying reference weights forward), then opens the staging sheet.
+    func stageImportFromPickedFile(url: URL, modelContext: ModelContext) {
         importMessage = nil
         importError = nil
         let access = url.startAccessingSecurityScopedResource()
@@ -68,9 +77,23 @@ final class ImportViewModel {
                 return "\(n). \(day.sheetName)"
             }
             stagedSelectedCycleDayIndex = 0
+
+            let existingExercises = try existingExercisesForCarryover(modelContext: modelContext)
+            let matchResult = ExerciseCarryoverMatcher.match(existing: existingExercises, newCycle: cycle)
+            stagedAutoCarryover = matchResult.autoCarryover
+            stagedCarryoverSuggestions = matchResult.suggestions
+            stagedConfirmedSuggestionIds = Set(matchResult.suggestions.map(\.id))
+
             importStagingPresented = true
         } catch {
             importError = error.localizedDescription
+        }
+    }
+
+    private func existingExercisesForCarryover(modelContext: ModelContext) throws -> [ExerciseCarryoverMatcher.ExistingExercise] {
+        guard let program = try ProgramRepository(modelContext: modelContext).activeProgram() else { return [] }
+        return program.workouts.flatMap { workout in
+            workout.exercises.map { ExerciseCarryoverMatcher.ExistingExercise(id: $0.id, name: $0.name) }
         }
     }
 
@@ -80,6 +103,9 @@ final class ImportViewModel {
         stagedImportProgramName = nil
         stagedCycleDayLabels = []
         stagedSelectedCycleDayIndex = 0
+        stagedAutoCarryover = [:]
+        stagedCarryoverSuggestions = []
+        stagedConfirmedSuggestionIds = []
     }
 
     func confirmStagedImport(modelContext: ModelContext) async {
@@ -96,6 +122,11 @@ final class ImportViewModel {
         }
         let calendar = Calendar.current
         let start = CalendarDate(from: importScheduleStartDate, calendar: calendar)
+        var exerciseCarryover = stagedAutoCarryover
+        for suggestion in stagedCarryoverSuggestions where stagedConfirmedSuggestionIds.contains(suggestion.id) {
+            exerciseCarryover[suggestion.newExercise] = suggestion.oldExerciseId
+        }
+        let carriedOverCount = exerciseCarryover.count
         do {
             try ProgramXlsxImporter.importReplacingStore(
                 cycle: cycle,
@@ -103,9 +134,13 @@ final class ImportViewModel {
                 startDate: start,
                 modelContext: modelContext,
                 calendar: calendar,
-                cycleStartIndex: stagedSelectedCycleDayIndex
+                cycleStartIndex: stagedSelectedCycleDayIndex,
+                exerciseCarryover: exerciseCarryover
             )
-            importMessage = "Imported “\(name)”. Your program and schedule were replaced. Completed workouts are still in History; any workout in progress was cleared."
+            let carryoverNote = carriedOverCount > 0
+                ? " Reference weights carried over for \(carriedOverCount) matching exercise\(carriedOverCount == 1 ? "" : "s")."
+                : ""
+            importMessage = "Imported “\(name)”. Your program and schedule were replaced. Completed workouts are still in History; any workout in progress was cleared.\(carryoverNote)"
             DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
         } catch {
             importError = error.localizedDescription

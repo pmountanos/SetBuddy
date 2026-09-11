@@ -28,7 +28,8 @@ enum ProgramXlsxImporter {
         modelContext: ModelContext,
         calendar: Calendar = .current,
         horizonDays: Int = ProgramRepository.forwardScheduleHorizonDays,
-        cycleStartIndex: Int = 0
+        cycleStartIndex: Int = 0,
+        exerciseCarryover: [ImportExerciseRef: UUID] = [:]
     ) throws {
         let cycle = try ProgramXlsxParser.parse(xlsxData: xlsx)
         try importReplacingStore(
@@ -38,12 +39,18 @@ enum ProgramXlsxImporter {
             modelContext: modelContext,
             calendar: calendar,
             horizonDays: horizonDays,
-            cycleStartIndex: cycleStartIndex
+            cycleStartIndex: cycleStartIndex,
+            exerciseCarryover: exerciseCarryover
         )
     }
 
     /// Same as the `xlsx:` overload, but for callers (like the Settings import staging flow) that already parsed the
     /// workbook once to show the cycle picker and don't need to parse it again to import.
+    ///
+    /// - Parameter exerciseCarryover: New exercise (workout sheet + name) → id of the matching exercise from the
+    ///   program being replaced, from `ExerciseCarryoverMatcher`. The new `PersistedExercise` reuses that id instead
+    ///   of a fresh one, so `WorkoutLoggingViewModel`'s previous-session reference values keep working across the
+    ///   re-import for exercises the user is still doing.
     static func importReplacingStore(
         cycle: [XlsxCycleDay],
         programName: String,
@@ -51,7 +58,8 @@ enum ProgramXlsxImporter {
         modelContext: ModelContext,
         calendar: Calendar = .current,
         horizonDays: Int = ProgramRepository.forwardScheduleHorizonDays,
-        cycleStartIndex: Int = 0
+        cycleStartIndex: Int = 0,
+        exerciseCarryover: [ImportExerciseRef: UUID] = [:]
     ) throws {
         try removeAllProgramsPreservingCompletedHistory(modelContext: modelContext)
 
@@ -65,7 +73,9 @@ enum ProgramXlsxImporter {
             w.program = program
             program.workouts.append(w)
             for (index, ex) in day.exercises.enumerated() {
+                let ref = ImportExerciseRef(workoutSheetName: day.sheetName, exerciseName: ex.name)
                 let pe = PersistedExercise(
+                    id: exerciseCarryover[ref] ?? UUID(),
                     name: ex.name,
                     sortOrder: index,
                     setCount: ProgramXlsxParser.defaultSetCountPerExercise,
