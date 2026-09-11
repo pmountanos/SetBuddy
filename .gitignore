@@ -5,9 +5,9 @@
 xcuserdata/
 *.xcuserstate
 
-# Build products / archives / exports
-build/
-*.xcarchive/
+# Build products / archives / exports — build/ExportOptions-*.plist are hand-authored signing
+# config (team ID, export method), not generated output, so they're kept and tracked.
+build/*.xcarchive/
 *.ipa
 DistributionSummary.plist
 Packaging.log
