@@ -13,6 +13,10 @@ import Testing
 private final class ImportTestBundleToken {}
 private final class SetBuddy2FixtureToken {}
 
+private struct StubDateProvider: DateProviding {
+    let now: Date
+}
+
 /// `.serialized`: many tests here create their own in-memory `ModelContainer`. Swift Testing runs tests concurrently
 /// by default, and SwiftData's underlying persistent-store machinery isn't safe under that many containers being
 /// spun up in true parallel — it crashes with SIGTRAP under load (reproduced: 31/35 tests crashed when run unserialized,
@@ -800,5 +804,61 @@ struct Set_BuddyTests {
         #expect(text.contains("program,CSV Export"))
         #expect(text.contains("Exercise 1"))
         #expect(text.contains("schedule,"))
+    }
+
+    // MARK: - TodayViewModel: force today's plan
+
+    /// Forcing today onto a different workout than currently scheduled should cascade every later day forward by
+    /// one, exactly like the Program tab's schedule picker — this is what makes "missed a day, resume today" work:
+    /// forcing today to what you actually want to do keeps the rest of the rotation's relative order intact.
+    @Test func forceTodaysScheduleCascadesLaterDaysAndRefreshesStatus() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        let program = PersistedProgram(name: "P")
+        let workoutA = PersistedWorkout(name: "Workout A")
+        let workoutB = PersistedWorkout(name: "Workout B")
+        workoutA.program = program
+        workoutB.program = program
+        program.workouts.append(contentsOf: [workoutA, workoutB])
+
+        // day0 = A (today), day1 = B, day2 = rest.
+        for offset in 0 ..< 3 {
+            let date = calendar.date(byAdding: .day, value: offset, to: today)!
+            let cd = CalendarDate(from: date, calendar: calendar)
+            let workoutID: UUID?
+            let isRest: Bool
+            switch offset {
+            case 0: workoutID = workoutA.id; isRest = false
+            case 1: workoutID = workoutB.id; isRest = false
+            default: workoutID = nil; isRest = true
+            }
+            let entry = PersistedScheduleEntry(year: cd.year, month: cd.month, day: cd.day, isRestDay: isRest, workoutID: workoutID)
+            entry.program = program
+            program.scheduleEntries.append(entry)
+        }
+        context.insert(program)
+        try context.save()
+
+        let viewModel = TodayViewModel(modelContext: context, dateProvider: StubDateProvider(now: today))
+        viewModel.refresh()
+        #expect(viewModel.status == .workoutDay(workoutId: workoutA.id, title: "Workout A"))
+        #expect(Set(viewModel.availableWorkoutsForOverride.map(\.id)) == Set([workoutA.id, workoutB.id]))
+
+        viewModel.forceTodaysSchedule(to: .workout(workoutB.id))
+
+        #expect(viewModel.status == .workoutDay(workoutId: workoutB.id, title: "Workout B"))
+
+        func entry(daysFromToday offset: Int) -> PersistedScheduleEntry? {
+            let cd = CalendarDate(from: calendar.date(byAdding: .day, value: offset, to: today)!, calendar: calendar)
+            return program.scheduleEntries.first { $0.year == cd.year && $0.month == cd.month && $0.day == cd.day }
+        }
+        // Today forced to B; day1 inherits today's old value (A); day2 inherits day1's old value (B).
+        #expect(entry(daysFromToday: 0)?.workoutID == workoutB.id)
+        #expect(entry(daysFromToday: 1)?.workoutID == workoutA.id)
+        #expect(entry(daysFromToday: 2)?.workoutID == workoutB.id)
     }
 }

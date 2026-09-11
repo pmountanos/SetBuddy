@@ -82,6 +82,22 @@ private struct TodayStatusContent: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("todayContinueWorkoutButton")
                 }
+                if showChangePlanMenu {
+                    Menu {
+                        Button("Rest") {
+                            viewModel.forceTodaysSchedule(to: .rest)
+                        }
+                        ForEach(viewModel.availableWorkoutsForOverride) { workout in
+                            Button(workout.name) {
+                                viewModel.forceTodaysSchedule(to: .workout(workout.id))
+                            }
+                        }
+                    } label: {
+                        Text("Change today’s plan")
+                            .font(.subheadline)
+                    }
+                    .accessibilityIdentifier("todayChangePlanMenu")
+                }
                 if let err = viewModel.loadError {
                     Text(err)
                         .font(.caption)
@@ -90,6 +106,14 @@ private struct TodayStatusContent: View {
             }
             .frame(maxWidth: 360)
         }
+    }
+
+    /// Hidden until there's a program to pick from — lets you realign the schedule to what you're actually doing
+    /// today (e.g. after missing a day) instead of leaving the calendar out of sync. Same cascade as the Program
+    /// tab's schedule picker: everything after today shifts to keep the workout rotation's order intact.
+    private var showChangePlanMenu: Bool {
+        if case .noProgram = viewModel.status { return false }
+        return viewModel.status != nil
     }
 }
 

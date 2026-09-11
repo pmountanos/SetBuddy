@@ -15,6 +15,9 @@ final class TodayViewModel {
     var status: TodayScheduleStatus?
     var loadError: String?
 
+    /// Workouts offered by “Change today’s plan” (Rest + each workout, same order as the Program tab).
+    var availableWorkoutsForOverride: [ProgramWorkoutOutline] = []
+
     init(modelContext: ModelContext, dateProvider: DateProviding = SystemDateProvider()) {
         self.modelContext = modelContext
         self.dateProvider = dateProvider
@@ -32,8 +35,11 @@ final class TodayViewModel {
             try repo.ensureForwardScheduleFilled()
             guard let program = try repo.activeProgram() else {
                 status = .noProgram
+                availableWorkoutsForOverride = []
                 return
             }
+            availableWorkoutsForOverride = try ProgramOutlineRepository(modelContext: modelContext)
+                .activeProgramOutline()?.workouts ?? []
             let schedule = repo.calendarSchedule(for: program)
             let names = repo.workoutTitles(for: program)
             var resolved = TodayScheduleResolver.status(
@@ -57,6 +63,25 @@ final class TodayViewModel {
             status = nil
         }
         DailyNotificationScheduler.requestReschedule(modelContext: modelContext)
+    }
+
+    /// Forces today onto `value` and cascades every later scheduled day forward by one — the same mechanic as the
+    /// Program tab's schedule picker, surfaced here for the “missed a day, resume today” flow: forcing today to the
+    /// workout you actually want to do now pushes the rest of the rotation to keep its order intact, so you don't
+    /// have to fix each day by hand.
+    func forceTodaysSchedule(to value: ProgramDaySchedulePickerValue) {
+        let calendar = Calendar.current
+        let today = CalendarDate(from: dateProvider.now, calendar: calendar)
+        do {
+            try ProgramRepository(modelContext: modelContext).setScheduleDayShiftingFollowing(
+                from: today,
+                value: value,
+                calendar: calendar
+            )
+            refresh()
+        } catch {
+            loadError = error.localizedDescription
+        }
     }
 
     var headline: String {
