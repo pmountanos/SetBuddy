@@ -16,3 +16,19 @@ ExportOptions.plist
 # SwiftPM
 .swiftpm/
 .build/
+
+# Gradle / Android / KMP
+.gradle/
+shared/build/
+androidApp/build/
+local.properties
+*.hprof
+captures/
+.cxx/
+
+# Release signing — never commit the keystore or its passwords. Back the .jks up somewhere safe
+# (password manager attachment, external drive) outside this repo; losing it means future release
+# builds can no longer be signed to match earlier ones.
+keystore/
+keystore.properties
+
