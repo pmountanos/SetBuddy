@@ -18,7 +18,10 @@ final class PersistedExercise {
     /// When true, logged reps are **per side** (e.g. dumbbell); volume for each set counts both sides (×2).
     var repsArePerSide: Bool
     /// Strength (weight/reps) or cardio (minutes/max heart rate). Drives which fields the logger shows.
-    var kind: ExerciseKind
+    /// `= .strength` (not just on `init`'s parameter) so SwiftData's lightweight migration has a default to
+    /// backfill on rows that existed before this field did — see `PersistedWorkout.sortOrder`'s doc comment
+    /// for why this matters (its lack of one crashed `ModelContainer` init migrating an existing store).
+    var kind: ExerciseKind = ExerciseKind.strength
     var workout: PersistedWorkout?
 
     init(
@@ -86,9 +89,10 @@ final class PersistedLoggedSet {
     var setIndex: Int
     var weight: Double
     var reps: Int
-    /// Cardio-exercise values (unused/zero for strength sets).
-    var cardioMinutes: Double
-    var maxHeartRate: Int
+    /// Cardio-exercise values (unused/zero for strength sets). Property-level defaults (not just `init`'s
+    /// parameters) for the same SwiftData migration reason as `PersistedExercise.kind` above.
+    var cardioMinutes: Double = 0
+    var maxHeartRate: Int = 0
     /// True when weight/reps were copied from the last completed session for this template.
     var seededFromCarryover: Bool
     /// True after the user changes weight or reps for this set in the current session.

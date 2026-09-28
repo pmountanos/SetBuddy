@@ -30,7 +30,12 @@ final class PersistedWorkout {
     /// (interleaved, e.g. Push 1, Cardio 1, Pull 1, Cardio 2, ...), or append order for workouts added in-app.
     /// Ties (e.g. every workout defaulting to 0 on an install that predates this field) fall back to
     /// `WorkoutTemplateDisplaySort`'s naming heuristic — see its call sites.
-    var sortOrder: Int
+    ///
+    /// The `= 0` here (not just on `init`'s parameter) is required for SwiftData's lightweight migration: it's
+    /// what tells SwiftData how to backfill this new column for rows that existed before this field did.
+    /// Without it, opening an existing store crashed `ModelContainer` init on launch (confirmed via the
+    /// on-device crash log — `_assertionFailure` inside `Set_BuddyApp.sharedModelContainer`).
+    var sortOrder: Int = 0
     @Relationship(deleteRule: .cascade, inverse: \PersistedExercise.workout)
     var exercises: [PersistedExercise]
 
