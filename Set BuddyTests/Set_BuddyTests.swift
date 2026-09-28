@@ -520,11 +520,68 @@ struct Set_BuddyTests {
             return
         }
 
+        // A was already due again the day after day1 (day2, old value), so this swaps day1 <-> day2
+        // (day1: B -> A, day2: A -> B) rather than shifting the whole horizon: day3 (rest) is untouched.
         #expect(!d0.isRestDay && d0.workoutID == wA.id)
         #expect(!d1.isRestDay && d1.workoutID == wA.id)
         #expect(!d2.isRestDay && d2.workoutID == wB.id)
-        #expect(!d3.isRestDay && d3.workoutID == wA.id)
+        #expect(d3.isRestDay && d3.workoutID == nil)
         #expect(d4.isRestDay && d4.workoutID == nil)
+    }
+
+    /// Regression for a real report: importing a multi-day named cycle (Push/Cardio/Pull/Cardio/Legs/Rest, e.g.)
+    /// and then forcing one day onto a workout that's due again a few days later used to insert a duplicate of
+    /// that workout and permanently delay every later day by one -- "days get out of order" relative to the
+    /// spreadsheet. This mirrors that shape with a recurrence 3 days out, not just 1, to prove the bounded
+    /// window correctly threads through several intermediate days rather than only handling the adjacent case.
+    @Test @MainActor func setScheduleDayShiftingFollowingSwapsDistantRecurrenceWithoutDelayingLaterDays() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: Date())
+
+        let program = PersistedProgram(name: "Cycle Test")
+        let push = PersistedWorkout(name: "Push")
+        let pull = PersistedWorkout(name: "Pull")
+        let legs = PersistedWorkout(name: "Legs")
+        push.program = program
+        pull.program = program
+        legs.program = program
+        program.workouts.append(contentsOf: [push, pull, legs])
+
+        // day0 = Push, day1 = Pull, day2 = Rest, day3 = Legs, day4 = Rest, day5 = Push (next cycle), ...
+        let cycle: [(UUID?, Bool)] = [
+            (push.id, false), (pull.id, false), (nil, true), (legs.id, false), (nil, true), (push.id, false),
+        ]
+        for (offset, slot) in cycle.enumerated() {
+            let date = calendar.date(byAdding: .day, value: offset, to: start)!
+            let cd = CalendarDate(from: date, calendar: calendar)
+            let entry = PersistedScheduleEntry(year: cd.year, month: cd.month, day: cd.day, isRestDay: slot.1, workoutID: slot.0)
+            entry.program = program
+            program.scheduleEntries.append(entry)
+        }
+        context.insert(program)
+        try context.save()
+
+        // Force day0 (was Push) onto Legs, which was already due on day3.
+        try ProgramRepository(modelContext: context).setScheduleDayShiftingFollowing(
+            from: CalendarDate(from: start, calendar: calendar),
+            value: .workout(legs.id),
+            calendar: calendar
+        )
+
+        func entry(daysFromStart offset: Int) -> PersistedScheduleEntry? {
+            let cd = CalendarDate(from: calendar.date(byAdding: .day, value: offset, to: start)!, calendar: calendar)
+            return program.scheduleEntries.first { $0.year == cd.year && $0.month == cd.month && $0.day == cd.day }
+        }
+        // Legs pulled forward to day0; Push/Pull/Rest (days0-2's old values) shift into days1-3; day4 onward —
+        // Rest, then the next cycle's Push — are completely untouched, not delayed by a day.
+        #expect(entry(daysFromStart: 0)?.workoutID == legs.id)
+        #expect(entry(daysFromStart: 1)?.workoutID == push.id)
+        #expect(entry(daysFromStart: 2)?.workoutID == pull.id)
+        #expect(entry(daysFromStart: 3)?.isRestDay == true)
+        #expect(entry(daysFromStart: 4)?.isRestDay == true)
+        #expect(entry(daysFromStart: 5)?.workoutID == push.id)
     }
 
     @Test @MainActor func historySessionDetailAggregatesVolume() throws {
@@ -857,10 +914,61 @@ struct Set_BuddyTests {
             let cd = CalendarDate(from: calendar.date(byAdding: .day, value: offset, to: today)!, calendar: calendar)
             return program.scheduleEntries.first { $0.year == cd.year && $0.month == cd.month && $0.day == cd.day }
         }
-        // Today forced to B; day1 inherits today's old value (A); day2 inherits day1's old value (B).
+        // B was already due tomorrow, so this swaps today <-> tomorrow (today: A -> B, tomorrow: B -> A) rather
+        // than shifting the whole horizon: day2 (rest) is untouched, not pushed to a 3rd day of rest.
         #expect(entry(daysFromToday: 0)?.workoutID == workoutB.id)
         #expect(entry(daysFromToday: 1)?.workoutID == workoutA.id)
-        #expect(entry(daysFromToday: 2)?.workoutID == workoutB.id)
+        #expect(entry(daysFromToday: 2)?.isRestDay == true)
+    }
+
+    /// When the forced workout does **not** recur anywhere in the near-term schedule, there's nothing to swap
+    /// with, so this falls back to the original insert-and-shift-everything behavior (extending the horizon by
+    /// one day) -- the genuine "I missed a day, delay the rest of the rotation to catch up" case.
+    @Test func forceTodaysScheduleWithNoNearbyRecurrenceFallsBackToFullShift() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        let program = PersistedProgram(name: "P")
+        let workoutA = PersistedWorkout(name: "Workout A")
+        let workoutB = PersistedWorkout(name: "Workout B")
+        let workoutC = PersistedWorkout(name: "Workout C")
+        workoutA.program = program
+        workoutB.program = program
+        workoutC.program = program
+        program.workouts.append(contentsOf: [workoutA, workoutB, workoutC])
+
+        // day0 = A (today), day1 = rest. C never appears anywhere in the schedule.
+        for offset in 0 ..< 2 {
+            let date = calendar.date(byAdding: .day, value: offset, to: today)!
+            let cd = CalendarDate(from: date, calendar: calendar)
+            let workoutID: UUID?
+            let isRest: Bool
+            switch offset {
+            case 0: workoutID = workoutA.id; isRest = false
+            default: workoutID = nil; isRest = true
+            }
+            let entry = PersistedScheduleEntry(year: cd.year, month: cd.month, day: cd.day, isRestDay: isRest, workoutID: workoutID)
+            entry.program = program
+            program.scheduleEntries.append(entry)
+        }
+        context.insert(program)
+        try context.save()
+
+        let viewModel = TodayViewModel(modelContext: context, dateProvider: StubDateProvider(now: today))
+        viewModel.refresh()
+        viewModel.forceTodaysSchedule(to: .workout(workoutC.id))
+
+        func entry(daysFromToday offset: Int) -> PersistedScheduleEntry? {
+            let cd = CalendarDate(from: calendar.date(byAdding: .day, value: offset, to: today)!, calendar: calendar)
+            return program.scheduleEntries.first { $0.year == cd.year && $0.month == cd.month && $0.day == cd.day }
+        }
+        #expect(entry(daysFromToday: 0)?.workoutID == workoutC.id)
+        // day1 inherits today's old value (A) -- the classic shift, since C never recurs to swap with.
+        #expect(entry(daysFromToday: 1)?.workoutID == workoutA.id)
+        #expect(entry(daysFromToday: 2)?.isRestDay == true)
     }
 
     // MARK: - StringSimilarity

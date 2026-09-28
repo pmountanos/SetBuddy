@@ -17,6 +17,11 @@ struct ProgramRepository {
     /// Days of calendar rows kept ahead of today (rest until assigned); matches spreadsheet import horizon.
     /// `nonisolated` so Swift 6 can use this value in default arguments and other nonisolated contexts.
     nonisolated static let forwardScheduleHorizonDays = 196
+    /// How many days ahead `setScheduleDayShiftingFollowing` looks for `value` already recurring, to swap to it
+    /// (bounded rotation) instead of inserting a duplicate and shifting the whole remaining horizon. Generous
+    /// upper bound on realistic workout-rotation cycle lengths — long enough to catch any real cycle, short
+    /// enough that a coincidental match far in the future doesn't get treated as "the same upcoming slot."
+    nonisolated static let nearDuplicateSearchWindow = 60
 
     private let modelContext: ModelContext
 
@@ -235,11 +240,16 @@ struct ProgramRepository {
     ///
     /// This keeps the relative order of later workouts/rest days after you realign one day (e.g. after a missed session).
     /// - Parameter skipIfUnchanged: When `true`, returns without saving if `start` already equals `value` (picker no-op). When `false`, always cascades (**Add a rest day** uses this so inserting rest still pushes the schedule even when that day was already rest).
+    /// - Parameter preferNearestRecurrence: When `true` (the default) and `value` already recurs within the next
+    ///   `nearDuplicateSearchWindow` days, rotates just that bounded window (`start` through the recurrence)
+    ///   instead of shifting the entire remaining horizon — see doc comment inside the method. Pass `false` for
+    ///   an unconditional insert (**Add a rest day** always wants to add a day, never swap to an existing one).
     func setScheduleDayShiftingFollowing(
         from start: CalendarDate,
         value: ProgramDaySchedulePickerValue,
         calendar: Calendar = .current,
-        skipIfUnchanged: Bool = true
+        skipIfUnchanged: Bool = true,
+        preferNearestRecurrence: Bool = true
     ) throws {
         try ensureForwardScheduleFilled(calendar: calendar)
         guard let program = try activeProgram() else { return }
@@ -292,6 +302,26 @@ struct ProgramRepository {
 
         guard let startEntry = entryByDate[start] else { return }
 
+        // If `value` already recurs soon (e.g. pulling a workout that's due again in a few days to today,
+        // rather than genuinely inserting something new), rotate just that bounded window instead of shifting
+        // — and spilling one extra day onto — the entire rest of the horizon. Otherwise that recurrence shows
+        // up again a few days later as an apparent duplicate/out-of-order repeat, and every day after it runs
+        // one calendar day later than the spreadsheet's actual cycle from then on — compounding with every
+        // such edit. Bounded to a search window rather than the full ~196-day horizon so a coincidental match
+        // far in the future (not really "the same upcoming cycle slot") still falls through to a plain insert.
+        if preferNearestRecurrence, days.count > 1 {
+            let searchLimit = min(Self.nearDuplicateSearchWindow, days.count - 1)
+            if let k = (1 ... searchLimit).first(where: { oldValues[$0] == value }) {
+                applySchedulePickerValue(value, to: startEntry, program: program)
+                for i in 1 ... k {
+                    guard let dest = entryByDate[days[i]] else { continue }
+                    applySchedulePickerValue(oldValues[i - 1], to: dest, program: program)
+                }
+                try modelContext.save()
+                return
+            }
+        }
+
         applySchedulePickerValue(value, to: startEntry, program: program)
         if days.count > 1 {
             for i in 1 ..< days.count {
@@ -322,9 +352,9 @@ struct ProgramRepository {
         try modelContext.save()
     }
 
-    /// Makes `start` a rest day and shifts later assignments forward (see `setScheduleDayShiftingFollowing`). Always cascades, even when `start` is already rest.
+    /// Makes `start` a rest day and shifts later assignments forward (see `setScheduleDayShiftingFollowing`). Always cascades, even when `start` is already rest. Always inserts a genuinely new rest day — never swaps to a rest day that's already coming up soon (`preferNearestRecurrence: false`), since "add a rest day" specifically means one more day off, not a rearrangement.
     func insertRestDayShiftingFollowing(from start: CalendarDate, calendar: Calendar = .current) throws {
-        try setScheduleDayShiftingFollowing(from: start, value: .rest, calendar: calendar, skipIfUnchanged: false)
+        try setScheduleDayShiftingFollowing(from: start, value: .rest, calendar: calendar, skipIfUnchanged: false, preferNearestRecurrence: false)
     }
 
     private func schedulePickerValue(from entry: PersistedScheduleEntry) -> ProgramDaySchedulePickerValue {
