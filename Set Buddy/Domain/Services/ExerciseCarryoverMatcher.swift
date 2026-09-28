@@ -89,8 +89,10 @@ enum ExerciseCarryoverMatcher {
             result.suggestions.append(Suggestion(newExercise: ref, oldExerciseId: old.id, oldExerciseName: old.name))
         }
 
-        // Present in workbook order rather than by-score.
-        let order = Dictionary(uniqueKeysWithValues: newRefs.enumerated().map { ($1, $0) })
+        // Present in workbook order rather than by-score. `uniquingKeysWith` (keep the first) rather than
+        // `uniqueKeysWithValues`: a workbook can legitimately repeat the same exercise name on one sheet
+        // (e.g. a copy-paste duplicate), which would otherwise crash this dictionary literal on the duplicate key.
+        let order = Dictionary(newRefs.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         result.suggestions.sort { (order[$0.newExercise] ?? 0) < (order[$1.newExercise] ?? 0) }
 
         return result

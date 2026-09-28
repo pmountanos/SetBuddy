@@ -940,6 +940,21 @@ struct Set_BuddyTests {
         #expect(byNewName["Bench Press Machin"] == machineId)
     }
 
+    /// Regression for a real on-device crash: a workbook sheet repeating the exact same exercise name twice
+    /// (e.g. a copy-paste duplicate) used to trap `ExerciseCarryoverMatcher.match`'s workbook-order `Dictionary`
+    /// on a duplicate key (`Dictionary(uniqueKeysWithValues:)`), crashing the whole app on import.
+    @Test func exerciseCarryoverMatcherToleratesDuplicateExerciseNameOnSameSheet() {
+        let cycle = [
+            XlsxCycleDay(sheetName: "Legs 2", isRestDay: false, exercises: [
+                XlsxImportedExercise(name: "Hip adduction", note: nil, repsArePerSide: false),
+                XlsxImportedExercise(name: "Hip adduction", note: nil, repsArePerSide: false),
+            ]),
+        ]
+        let result = ExerciseCarryoverMatcher.match(existing: [], newCycle: cycle)
+        #expect(result.autoCarryover.isEmpty)
+        #expect(result.suggestions.isEmpty)
+    }
+
     // MARK: - Import carryover end to end
 
     /// Re-importing with an exact exercise-name match should reuse the old exercise's id, which keeps
@@ -1369,5 +1384,29 @@ struct Set_BuddyTests {
 
         let cardio1 = try #require(program.workouts.first { $0.name == "Cardio 1" })
         #expect(cardio1.exercises.allSatisfy { $0.kind == .cardio })
+    }
+
+    /// Exercises the exact same code the real Settings import UI calls (`ImportViewModel`), not just the
+    /// lower-level parser/importer — including the real default 196-day horizon — to reproduce a reported
+    /// on-device crash when importing `Set Buddy-4.xlsx`.
+    @Test @MainActor func reproduceRealImportViewModelFlowWithSetBuddy4Fixture() async throws {
+        let bundle = Bundle(for: SetBuddy4FixtureToken.self)
+        guard let url = bundle.url(forResource: "Set Buddy-4", withExtension: "xlsx") else {
+            Issue.record("Add Fixtures/Set Buddy-4.xlsx to the Set BuddyTests folder (synced into the test bundle).")
+            return
+        }
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let importer = ImportViewModel()
+        importer.stageImportFromPickedFile(url: url, modelContext: context)
+        #expect(importer.importError == nil)
+        #expect(importer.importStagingPresented == true)
+
+        await importer.confirmStagedImport(modelContext: context)
+        #expect(importer.importError == nil, "importError: \(importer.importError ?? "nil")")
+
+        let program = try #require(try ProgramRepository(modelContext: context).activeProgram())
+        #expect(program.scheduleEntries.count > 0)
     }
 }
