@@ -434,9 +434,15 @@ struct ProgramRepository {
         try modelContext.save()
     }
 
+    /// Switching to cardio resets the set count to **1** — a cardio exercise is normally a single set (one
+    /// duration/heart-rate reading), not a strength-style multi-set default. Still adjustable afterward via the
+    /// usual "Sets to log" stepper for anyone who wants more (e.g. interval rounds).
     func setExerciseKind(id: UUID, kind: ExerciseKind) throws {
         let ex = try requireExercise(id: id)
         ex.kind = kind
+        if kind == .cardio {
+            ex.setCount = 1
+        }
         try modelContext.save()
     }
 

@@ -1075,6 +1075,30 @@ struct Set_BuddyTests {
         #expect(exercise.kind == .cardio)
     }
 
+    /// Cardio is normally a single set (one duration/heart-rate reading), not a strength-style multi-set default —
+    /// switching an exercise to cardio should reset its set count to 1, not leave it at whatever strength default it had.
+    @Test func setExerciseKindResetsSetCountToOneWhenSwitchingToCardio() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Push 1")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench Press", sortOrder: 0, setCount: 4)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let repo = ProgramRepository(modelContext: context)
+        try repo.setExerciseKind(id: exercise.id, kind: .cardio)
+        #expect(exercise.setCount == 1)
+
+        // Switching back to strength doesn't second-guess the (now 1) count — the user adjusts it if they want more.
+        try repo.setExerciseKind(id: exercise.id, kind: .strength)
+        #expect(exercise.setCount == 1)
+    }
+
     @Test func updateCardioLoggedSetRecordsMinutesAndMaxHeartRateAndClampsNegatives() throws {
         let store = try Self.makeInMemoryStore()
         let context = store.context
@@ -1381,9 +1405,13 @@ struct Set_BuddyTests {
         #expect(sorted.dropLast().allSatisfy { $0.kind == .strength })
         #expect(sorted.last?.kind == .cardio)
         #expect(sorted.last?.name == "Cardio")
+        // Cardio defaults to a single set on import (a strength default of 4 doesn't make sense for it).
+        #expect(sorted.last?.setCount == 1)
+        #expect(sorted.dropLast().allSatisfy { $0.setCount == ProgramXlsxParser.defaultSetCountPerExercise })
 
         let cardio1 = try #require(program.workouts.first { $0.name == "Cardio 1" })
         #expect(cardio1.exercises.allSatisfy { $0.kind == .cardio })
+        #expect(cardio1.exercises.allSatisfy { $0.setCount == 1 })
     }
 
     /// Exercises the exact same code the real Settings import UI calls (`ImportViewModel`), not just the

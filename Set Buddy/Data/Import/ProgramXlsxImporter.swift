@@ -78,7 +78,7 @@ enum ProgramXlsxImporter {
                     id: exerciseCarryover[ref] ?? UUID(),
                     name: ex.name,
                     sortOrder: index,
-                    setCount: ProgramXlsxParser.defaultSetCountPerExercise,
+                    setCount: ex.kind == .cardio ? 1 : ProgramXlsxParser.defaultSetCountPerExercise,
                     note: ex.note,
                     repsArePerSide: ex.repsArePerSide,
                     kind: ex.kind

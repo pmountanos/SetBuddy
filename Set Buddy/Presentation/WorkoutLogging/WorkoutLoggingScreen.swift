@@ -167,6 +167,15 @@ private enum LoggingFieldFocus: Hashable {
         case .cardioMaxHeartRate(let id): return "chr:\(id)"
         }
     }
+
+    /// The row a field belongs to (its `SetRow.id`) — used to tell a same-row field move (weight → reps) apart
+    /// from a move to a different row, so same-row moves don't trigger a commit mid-transition (see `WorkoutLoggingContent`).
+    fileprivate var rowId: String {
+        switch self {
+        case .weight(let id), .reps(let id), .cardioMinutes(let id), .cardioMaxHeartRate(let id):
+            return id
+        }
+    }
 }
 
 private extension Notification.Name {
@@ -174,12 +183,19 @@ private extension Notification.Name {
     static let workoutLoggingCommitKeyedField = Notification.Name("workoutLoggingCommitKeyedField")
 }
 
+/// Deferred to the next run-loop tick: posting (and therefore the row commit → view-model save → section rebuild
+/// it triggers) must not happen synchronously inside `.onChange(of: fieldFocus)` — mutating the row data source
+/// while iOS's focus engine is still mid-transition to the newly focused field makes it drop focus to `nil`
+/// instead of landing on that field (reproduced: moving from weight straight to reps closed the keyboard as if
+/// Done had been tapped).
 private func postWorkoutFieldCommit(_ focus: LoggingFieldFocus) {
-    NotificationCenter.default.post(
-        name: .workoutLoggingCommitKeyedField,
-        object: nil,
-        userInfo: ["commitKey": focus.commitKey]
-    )
+    DispatchQueue.main.async {
+        NotificationCenter.default.post(
+            name: .workoutLoggingCommitKeyedField,
+            object: nil,
+            userInfo: ["commitKey": focus.commitKey]
+        )
+    }
 }
 
 /// Number pads have no Return key; SwiftUI’s keyboard toolbar often does not attach to fields inside `List`. Always use this to dismiss.
@@ -277,7 +293,11 @@ private struct WorkoutLoggingContent: View {
                 .scrollDismissesKeyboard(.immediately)
                 .onChange(of: fieldFocus) { oldValue, newValue in
                     guard oldValue != newValue else { return }
-                    if let old = oldValue {
+                    // Moving between a row's own fields (weight -> reps) must not commit mid-transition — doing
+                    // so rebuilds the row list while iOS's focus engine is still landing on the new field, which
+                    // drops focus to nil instead (closes the keyboard as if Done had been tapped). Only commit
+                    // when focus actually leaves the row (a different row, Done, or dismissal).
+                    if let old = oldValue, old.rowId != newValue?.rowId {
                         postWorkoutFieldCommit(old)
                     }
                 }

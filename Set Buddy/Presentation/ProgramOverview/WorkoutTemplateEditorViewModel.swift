@@ -63,8 +63,13 @@ final class WorkoutTemplateEditorViewModel {
         try? ProgramRepository(modelContext: modelContext).setExerciseRepsPerSide(id: exerciseId, value: value)
     }
 
+    /// Switching to cardio resets the set count to 1 (see `ProgramRepository.setExerciseKind`) — reflected here
+    /// too so the "Sets to log" stepper shown in the same sheet updates immediately, not just on next reload.
     func persistExerciseKind(exerciseId: UUID, kind: ExerciseKind) {
         try? ProgramRepository(modelContext: modelContext).setExerciseKind(id: exerciseId, kind: kind)
+        if kind == .cardio, let index = rows.firstIndex(where: { $0.id == exerciseId }) {
+            rows[index].setCount = 1
+        }
     }
 
     func addExercise() {
