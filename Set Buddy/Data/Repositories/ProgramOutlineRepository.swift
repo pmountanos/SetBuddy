@@ -57,8 +57,11 @@ struct ProgramOutlineRepository {
         var descriptor = FetchDescriptor<PersistedProgram>()
         descriptor.fetchLimit = 1
         guard let program = try modelContext.fetch(descriptor).first else { return nil }
+        // sortOrder (import/cycle position) first; falls back to the naming heuristic on ties (e.g. every
+        // workout still at the default 0 on an install that predates this field, until it's re-imported).
         let sortedWorkouts = program.workouts.sorted { a, b in
-            WorkoutTemplateDisplaySort.compare(a.name, b.name)
+            if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
+            return WorkoutTemplateDisplaySort.compare(a.name, b.name)
         }
         let outlines = sortedWorkouts.map { workout in
             let exercises = workout.exercises

@@ -16,7 +16,8 @@ enum ProgramSpreadsheetExport {
 
     static func buildXlsx(program: PersistedProgram) throws -> Data {
         let workouts = program.workouts.sorted { a, b in
-            WorkoutTemplateDisplaySort.compare(a.name, b.name)
+            if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
+            return WorkoutTemplateDisplaySort.compare(a.name, b.name)
         }
         guard !workouts.isEmpty else {
             throw ExportError.noActiveProgram
@@ -58,7 +59,8 @@ enum ProgramSpreadsheetExport {
         lines.append("program,\(SpreadsheetFormatting.csvEscape(program.name)),,,")
 
         let workouts = program.workouts.sorted { a, b in
-            WorkoutTemplateDisplaySort.compare(a.name, b.name)
+            if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
+            return WorkoutTemplateDisplaySort.compare(a.name, b.name)
         }
         for w in workouts {
             lines.append("workout,\(SpreadsheetFormatting.csvEscape(w.name)),,,")

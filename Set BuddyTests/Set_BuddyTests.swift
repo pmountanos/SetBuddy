@@ -1522,6 +1522,37 @@ struct Set_BuddyTests {
         #expect(cardio1.exercises.allSatisfy { $0.setCount == 1 })
     }
 
+    /// Regression for a real report: the Program tab's per-day schedule picker (`ProgramOutlineRepository`'s
+    /// workout order) grouped every cardio workout at the end of the list instead of showing them interleaved
+    /// where they actually fall in the spreadsheet's cycle -- because ordering fell back entirely to
+    /// `WorkoutTemplateDisplaySort`'s Push/Pull/Legs-only naming heuristic, which has no idea where "Cardio 1"
+    /// belongs and parks anything unrecognized at the end. Workouts must now come back in the spreadsheet's
+    /// actual interleaved cycle order.
+    @Test @MainActor func importsSetBuddy4Fixture_workoutOrderMatchesSpreadsheetCycleNotNamingHeuristic() throws {
+        let bundle = Bundle(for: SetBuddy4FixtureToken.self)
+        guard let url = bundle.url(forResource: "Set Buddy-4", withExtension: "xlsx") else {
+            Issue.record("Add Fixtures/Set Buddy-4.xlsx to the Set BuddyTests folder (synced into the test bundle).")
+            return
+        }
+        let data = try Data(contentsOf: url)
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        try ProgramXlsxImporter.importReplacingStore(
+            xlsx: data,
+            programName: "Cardio Import",
+            startDate: CalendarDate(year: 2026, month: 1, day: 1),
+            modelContext: context,
+            horizonDays: 12
+        )
+
+        let outline = try #require(try ProgramOutlineRepository(modelContext: context).activeProgramOutline())
+        #expect(outline.workouts.map(\.name) == [
+            "Push 1", "Cardio 1", "Pull 1", "Cardio 2", "Legs 1",
+            "Push 2", "Cardio 3", "Pull 2", "Cardio 4", "Legs 2",
+        ])
+    }
+
     /// Exercises the exact same code the real Settings import UI calls (`ImportViewModel`), not just the
     /// lower-level parser/importer — including the real default 196-day horizon — to reproduce a reported
     /// on-device crash when importing `Set Buddy-4.xlsx`.

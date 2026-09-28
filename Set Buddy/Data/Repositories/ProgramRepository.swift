@@ -142,8 +142,8 @@ struct ProgramRepository {
         }
 
         let program = PersistedProgram(name: "Sample Program")
-        let upper = PersistedWorkout(name: "Upper Day A")
-        let lower = PersistedWorkout(name: "Lower Day B")
+        let upper = PersistedWorkout(name: "Upper Day A", sortOrder: 0)
+        let lower = PersistedWorkout(name: "Lower Day B", sortOrder: 1)
         upper.program = program
         lower.program = program
         program.workouts.append(contentsOf: [upper, lower])
@@ -385,7 +385,8 @@ struct ProgramRepository {
             throw ProgramEditingError.noActiveProgram
         }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let w = PersistedWorkout(name: trimmed.isEmpty ? "New workout" : trimmed)
+        let order = (program.workouts.map(\.sortOrder).max() ?? -1) + 1
+        let w = PersistedWorkout(name: trimmed.isEmpty ? "New workout" : trimmed, sortOrder: order)
         w.program = program
         program.workouts.append(w)
         modelContext.insert(w)

@@ -69,7 +69,11 @@ enum ProgramXlsxImporter {
         var workoutBySheet: [String: PersistedWorkout] = [:]
         for day in cycle where !day.isRestDay {
             if workoutBySheet[day.sheetName] != nil { continue }
-            let w = PersistedWorkout(name: day.sheetName)
+            // First-encountered order in the cycle (interleaved, e.g. Push 1, Cardio 1, Pull 1, ...) — drives
+            // display/picker order downstream instead of WorkoutTemplateDisplaySort's Push/Pull/Legs-only
+            // naming heuristic, which otherwise groups anything else (like Cardio) at the end regardless of
+            // where it actually falls in the spreadsheet's rotation.
+            let w = PersistedWorkout(name: day.sheetName, sortOrder: workoutBySheet.count)
             w.program = program
             program.workouts.append(w)
             for (index, ex) in day.exercises.enumerated() {

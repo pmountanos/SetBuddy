@@ -26,12 +26,18 @@ final class PersistedWorkout {
     var id: UUID
     var name: String
     var program: PersistedProgram?
+    /// Display/picker order: the workout's first-encountered position in the imported spreadsheet's cycle
+    /// (interleaved, e.g. Push 1, Cardio 1, Pull 1, Cardio 2, ...), or append order for workouts added in-app.
+    /// Ties (e.g. every workout defaulting to 0 on an install that predates this field) fall back to
+    /// `WorkoutTemplateDisplaySort`'s naming heuristic — see its call sites.
+    var sortOrder: Int
     @Relationship(deleteRule: .cascade, inverse: \PersistedExercise.workout)
     var exercises: [PersistedExercise]
 
-    init(id: UUID = UUID(), name: String) {
+    init(id: UUID = UUID(), name: String, sortOrder: Int = 0) {
         self.id = id
         self.name = name
+        self.sortOrder = sortOrder
         self.exercises = []
     }
 }
