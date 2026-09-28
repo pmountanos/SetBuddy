@@ -16,6 +16,8 @@ final class WorkoutLoggingViewModel {
         let hasNote: Bool
         /// Reps are per side; session volume doubles for each set of this exercise.
         let repsArePerSide: Bool
+        /// Strength (weight/reps) or cardio (minutes/max heart rate) — drives which fields the row shows.
+        let kind: ExerciseKind
         var rows: [SetRow]
     }
 
@@ -27,9 +29,14 @@ final class WorkoutLoggingViewModel {
         /// Persisted values (zeros until the user enters data for this set).
         var weight: Double
         var reps: Int
+        /// Cardio values (unused for strength rows).
+        var cardioMinutes: Double
+        var maxHeartRate: Int
         /// Last completed session values for this exercise/set — UI only until entered.
         var referenceWeight: Double
         var referenceReps: Int
+        var referenceCardioMinutes: Double
+        var referenceMaxHeartRate: Int
         /// True after the user has entered and committed data for this set (`PersistedLoggedSet.userEditedValues`).
         var isEntered: Bool
     }
@@ -138,10 +145,14 @@ final class WorkoutLoggingViewModel {
                 let logged = session.loggedSets.first { $0.exerciseId == exercise.id && $0.setIndex == setIdx }
                 let weight = logged?.weight ?? 0
                 let reps = logged?.reps ?? 0
+                let cardioMinutes = logged?.cardioMinutes ?? 0
+                let maxHeartRate = logged?.maxHeartRate ?? 0
                 let isEntered = logged?.userEditedValues ?? false
                 let refMatch = referenceValues[exercise.id]?[setIdx]
                 let referenceWeight = refMatch?.weight ?? 0
                 let referenceReps = refMatch?.reps ?? 0
+                let referenceCardioMinutes = refMatch?.cardioMinutes ?? 0
+                let referenceMaxHeartRate = refMatch?.maxHeartRate ?? 0
                 rows.append(
                     SetRow(
                         id: "\(exercise.id.uuidString)-\(setIdx)",
@@ -150,8 +161,12 @@ final class WorkoutLoggingViewModel {
                         setNumber: setIdx + 1,
                         weight: weight,
                         reps: reps,
+                        cardioMinutes: cardioMinutes,
+                        maxHeartRate: maxHeartRate,
                         referenceWeight: referenceWeight,
                         referenceReps: referenceReps,
+                        referenceCardioMinutes: referenceCardioMinutes,
+                        referenceMaxHeartRate: referenceMaxHeartRate,
                         isEntered: isEntered
                     )
                 )
@@ -164,6 +179,7 @@ final class WorkoutLoggingViewModel {
                     name: exercise.name,
                     hasNote: hasNote,
                     repsArePerSide: exercise.repsArePerSide,
+                    kind: exercise.kind,
                     rows: rows
                 )
             )
@@ -214,6 +230,19 @@ final class WorkoutLoggingViewModel {
             setIndex: setIndex,
             weight: weight,
             reps: reps
+        )
+        rebuildSections(workout: w, session: session)
+    }
+
+    /// Cardio counterpart of `updateLoggedSet` — records minutes/max heart rate instead of weight/reps.
+    func updateCardioLoggedSet(exerciseId: UUID, setIndex: Int, minutes: Double, maxHeartRate: Int, markUserEntry: Bool) {
+        guard markUserEntry, let session, let w = workout else { return }
+        try? WorkoutSessionRepository(modelContext: modelContext).updateCardioLoggedSet(
+            session: session,
+            exerciseId: exerciseId,
+            setIndex: setIndex,
+            minutes: minutes,
+            maxHeartRate: maxHeartRate
         )
         rebuildSections(workout: w, session: session)
     }

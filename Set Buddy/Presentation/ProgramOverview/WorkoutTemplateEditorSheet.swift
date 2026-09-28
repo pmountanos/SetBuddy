@@ -35,15 +35,30 @@ struct WorkoutTemplateEditorSheet: View {
                             .onChange(of: row.name) { _, newValue in
                                 viewModel.persistExerciseName(exerciseId: row.id, name: newValue)
                             }
+                        Picker("Type", selection: $row.kind) {
+                            Text("Strength").tag(ExerciseKind.strength)
+                            Text("Cardio").tag(ExerciseKind.cardio)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("workoutEditorKindPicker-\(row.id.uuidString)")
+                        .onChange(of: row.kind) { _, newValue in
+                            viewModel.persistExerciseKind(exerciseId: row.id, kind: newValue)
+                        }
                         Stepper("Sets to log: \(row.setCount)", value: $row.setCount, in: 1 ... 20)
                             .onChange(of: row.setCount) { _, newValue in
                                 viewModel.persistExerciseSetCount(exerciseId: row.id, count: newValue)
                             }
-                        Toggle("Per side — volume ×2", isOn: $row.repsArePerSide)
-                            .accessibilityIdentifier("workoutEditorPerSideToggle-\(row.id.uuidString)")
-                            .onChange(of: row.repsArePerSide) { _, newValue in
-                                viewModel.persistExerciseRepsPerSide(exerciseId: row.id, value: newValue)
-                            }
+                        if row.kind == .strength {
+                            Toggle("Per side — volume ×2", isOn: $row.repsArePerSide)
+                                .accessibilityIdentifier("workoutEditorPerSideToggle-\(row.id.uuidString)")
+                                .onChange(of: row.repsArePerSide) { _, newValue in
+                                    viewModel.persistExerciseRepsPerSide(exerciseId: row.id, value: newValue)
+                                }
+                        } else {
+                            Text("Cardio sets log minutes and max heart rate instead of weight/reps.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .onDelete(perform: viewModel.deleteExercises)

@@ -185,11 +185,13 @@ There is no separate `UseCases/` or `Resources/` subtree in sync with the above;
 | Program | `PersistedProgram` |
 | Schedule row | `PersistedScheduleEntry` (Y/M/D, rest flag, optional `workoutID`) |
 | Workout template | `PersistedWorkout` |
-| Template exercise | `PersistedExercise` (`note`, `setCount`, `sortOrder`) |
+| Template exercise | `PersistedExercise` (`note`, `setCount`, `sortOrder`, `kind: ExerciseKind`) |
 | Session | `PersistedWorkoutSession` (template id, calendar day, `loggedSets`, snapshots) |
-| Logged set | `PersistedLoggedSet` (`weight`, `reps`, `userEditedValues`, `seededFromCarryover` legacy/unused, `repsArePerSide`, etc.) — **only rows the user entered** remain after finish |
+| Logged set | `PersistedLoggedSet` (`weight`, `reps`, `cardioMinutes`, `maxHeartRate`, `userEditedValues`, `seededFromCarryover` legacy/unused, `repsArePerSide`, etc.) — **only rows the user entered** remain after finish |
 
 There is no separate `PlannedSet` entity: template **set count** lives on `PersistedExercise`.
+
+**Cardio exercises (as-built, 2026-09-28):** `ExerciseKind` (`.strength` / `.cardio`, `Domain/Models/ExerciseKind.swift`) on `PersistedExercise` drives whether `WorkoutLoggingScreen` renders weight/reps fields or a parallel `WorkoutCardioSetRowView` (Minutes / Max HR (bpm)), sharing the same reference-value/entered-value chrome and set-count/carryover machinery — cardio isn't a separate feature, it's a second value pair on the same row/set model. A cardio-only workout day (e.g. "Cardio" alongside Push 1/Pull 1) needs no schema of its own: it's just a `PersistedWorkout` whose exercises are all `.cardio`, since `ScheduledDayKind`/the schedule picker/"Change today's plan" already accept any named workout template. Cardio sets don't contribute to weight × reps volume (`VolumeCalculator`/`HistoryRepository` skip them, since weight/reps stay `0` on those rows).
 
 `PersistedLoggedSet.seededFromCarryover` remains unused/always-`false`: the **import** carryover feature (see below) works by preserving `PersistedExercise.id` across a re-import, not by seeding this field, so it's still legacy scaffolding rather than dead code worth removing (removing an unused SwiftData model field is a schema change out of proportion to the cleanup).
 

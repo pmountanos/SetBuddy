@@ -18,6 +18,9 @@ enum HistorySpreadsheetExport {
         .text("per_side"),
         .text("set_volume"),
         .text("session_note"),
+        .text("type"),
+        .text("cardio_minutes"),
+        .text("max_heart_rate"),
     ]
 
     static func buildXlsx(sessions: [HistorySessionDetail]) throws -> Data {
@@ -31,11 +34,9 @@ enum HistorySpreadsheetExport {
             var daySetVolumeSum = 0.0
             for group in session.exercises {
                 for line in group.sets {
-                    let vol = VolumeCalculator.setVolume(
-                        weight: line.weight,
-                        reps: line.reps,
-                        repsArePerSide: line.repsArePerSide
-                    )
+                    let vol = line.kind == .cardio
+                        ? 0
+                        : VolumeCalculator.setVolume(weight: line.weight, reps: line.reps, repsArePerSide: line.repsArePerSide)
                     daySetVolumeSum += vol
                     rows.append([
                         .text(dateStr),
@@ -49,6 +50,9 @@ enum HistorySpreadsheetExport {
                         .text(line.repsArePerSide ? "yes" : "no"),
                         .number(vol),
                         .text(noteText),
+                        .text(line.kind.rawValue),
+                        .number(line.cardioMinutes),
+                        .number(Double(line.maxHeartRate)),
                     ])
                 }
             }
@@ -64,6 +68,9 @@ enum HistorySpreadsheetExport {
                 .text(""),
                 .number(daySetVolumeSum),
                 .text(noteText),
+                .text(""),
+                .text(""),
+                .text(""),
             ])
         }
 
@@ -71,6 +78,7 @@ enum HistorySpreadsheetExport {
             rows.append([
                 .text(""), .text(""), .text(""), .number(0), .text(""), .number(0),
                 .number(0), .number(0), .text("no"), .number(0), .text(""),
+                .text(""), .number(0), .number(0),
             ])
         }
 
@@ -82,7 +90,7 @@ enum HistorySpreadsheetExport {
 
     static func buildCsv(sessions: [HistorySessionDetail]) throws -> Data {
         var lines: [String] = [
-            "completed_at,workout,schedule_day,total_volume,exercise,set_number,weight_kg,reps,per_side,set_volume,session_note",
+            "completed_at,workout,schedule_day,total_volume,exercise,set_number,weight_kg,reps,per_side,set_volume,session_note,type,cardio_minutes,max_heart_rate",
         ]
         let dateFmt = historyDateFormatter()
 
@@ -95,19 +103,17 @@ enum HistorySpreadsheetExport {
             var daySetVolumeSum = 0.0
             for group in session.exercises {
                 for line in group.sets {
-                    let vol = VolumeCalculator.setVolume(
-                        weight: line.weight,
-                        reps: line.reps,
-                        repsArePerSide: line.repsArePerSide
-                    )
+                    let vol = line.kind == .cardio
+                        ? 0
+                        : VolumeCalculator.setVolume(weight: line.weight, reps: line.reps, repsArePerSide: line.repsArePerSide)
                     daySetVolumeSum += vol
                     lines.append(
-                        "\(dateStr),\(title),\(sched),\(tv),\(SpreadsheetFormatting.csvEscape(group.name)),\(line.setNumber),\(line.weight),\(line.reps),\(line.repsArePerSide ? "yes" : "no"),\(vol),\(note)"
+                        "\(dateStr),\(title),\(sched),\(tv),\(SpreadsheetFormatting.csvEscape(group.name)),\(line.setNumber),\(line.weight),\(line.reps),\(line.repsArePerSide ? "yes" : "no"),\(vol),\(note),\(line.kind.rawValue),\(line.cardioMinutes),\(line.maxHeartRate)"
                     )
                 }
             }
             lines.append(
-                "\(dateStr),\(title),\(sched),\(tv),workout_total,,,,,\(daySetVolumeSum),\(note)"
+                "\(dateStr),\(title),\(sched),\(tv),workout_total,,,,,\(daySetVolumeSum),\(note),,,"
             )
         }
 

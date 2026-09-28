@@ -13,6 +13,7 @@ struct WorkoutEditorExerciseRow: Identifiable, Hashable {
     var name: String
     var setCount: Int
     var repsArePerSide: Bool
+    var kind: ExerciseKind
 }
 
 /// Editing state for one workout template's sheet: name, exercises (add/rename/reorder/delete), sets, per-side.
@@ -62,6 +63,10 @@ final class WorkoutTemplateEditorViewModel {
         try? ProgramRepository(modelContext: modelContext).setExerciseRepsPerSide(id: exerciseId, value: value)
     }
 
+    func persistExerciseKind(exerciseId: UUID, kind: ExerciseKind) {
+        try? ProgramRepository(modelContext: modelContext).setExerciseKind(id: exerciseId, kind: kind)
+    }
+
     func addExercise() {
         guard let wid = workoutId else { return }
         try? ProgramRepository(modelContext: modelContext).addExercise(toWorkout: wid)
@@ -99,7 +104,8 @@ final class WorkoutTemplateEditorViewModel {
                 id: $0.id,
                 name: $0.name,
                 setCount: max(1, min(20, $0.setCount)),
-                repsArePerSide: $0.repsArePerSide
+                repsArePerSide: $0.repsArePerSide,
+                kind: $0.kind
             )
         }
     }

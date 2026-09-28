@@ -70,12 +70,17 @@ struct HistorySessionDetailView: View {
                                         .foregroundStyle(.secondary)
                                     Spacer()
                                     VStack(alignment: .trailing, spacing: 2) {
-                                        Text("\(Int(line.weight)) kg × \(line.reps)\(line.repsArePerSide ? " /side" : "")")
-                                            .font(.body.monospacedDigit())
-                                        if line.repsArePerSide {
-                                            Text("Volume ×2 (both sides)")
-                                                .font(.caption2)
-                                                .foregroundStyle(.tertiary)
+                                        if line.kind == .cardio {
+                                            Text("\(Self.formatCardioMinutes(line.cardioMinutes)) min · max HR \(line.maxHeartRate)")
+                                                .font(.body.monospacedDigit())
+                                        } else {
+                                            Text("\(Int(line.weight)) kg × \(line.reps)\(line.repsArePerSide ? " /side" : "")")
+                                                .font(.body.monospacedDigit())
+                                            if line.repsArePerSide {
+                                                Text("Volume ×2 (both sides)")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.tertiary)
+                                            }
                                         }
                                     }
                                 }
@@ -84,7 +89,11 @@ struct HistorySessionDetailView: View {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(exercise.name)
                                 Spacer(minLength: 8)
-                                Text(Self.formatVolume(exercise.volume))
+                                Text(
+                                    exercise.sets.first?.kind == .cardio
+                                        ? "\(Self.formatCardioMinutes(exercise.sets.reduce(0) { $0 + $1.cardioMinutes })) min"
+                                        : Self.formatVolume(exercise.volume)
+                                )
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
@@ -147,6 +156,10 @@ struct HistorySessionDetailView: View {
 
     private static func formatVolume(_ v: Double) -> String {
         volumeFormatter.string(from: NSNumber(value: v)) ?? "\(Int(v))"
+    }
+
+    private static func formatCardioMinutes(_ minutes: Double) -> String {
+        minutes == floor(minutes) ? "\(Int(minutes))" : String(format: "%.1f", minutes)
     }
 
     private func workoutNoteRowIsEmpty(_ detail: HistorySessionDetail) -> Bool {

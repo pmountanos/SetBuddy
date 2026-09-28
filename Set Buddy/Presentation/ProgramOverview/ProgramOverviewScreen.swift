@@ -192,7 +192,11 @@ private struct ProgramOverviewContent: View {
                                                 Text("\(exercise.setCount) sets")
                                                     .font(.caption2)
                                                     .foregroundStyle(.tertiary)
-                                                if exercise.repsArePerSide {
+                                                if exercise.kind == .cardio {
+                                                    Text("· Cardio")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.tertiary)
+                                                } else if exercise.repsArePerSide {
                                                     Text("· Per side ×2")
                                                         .font(.caption2)
                                                         .foregroundStyle(.tertiary)

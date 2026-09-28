@@ -156,11 +156,15 @@ private struct FinishWorkoutSheet: View {
 private enum LoggingFieldFocus: Hashable {
     case weight(String)
     case reps(String)
+    case cardioMinutes(String)
+    case cardioMaxHeartRate(String)
 
     fileprivate var commitKey: String {
         switch self {
         case .weight(let id): return "w:\(id)"
         case .reps(let id): return "r:\(id)"
+        case .cardioMinutes(let id): return "cm:\(id)"
+        case .cardioMaxHeartRate(let id): return "chr:\(id)"
         }
     }
 }
@@ -205,20 +209,38 @@ private struct WorkoutLoggingContent: View {
                     ForEach(viewModel.sections) { section in
                         Section {
                             ForEach(section.rows) { row in
-                                WorkoutSetRowView(
-                                    row: row,
-                                    repsArePerSide: section.repsArePerSide,
-                                    focusField: $fieldFocus,
-                                    onCommitRow: { w, r, mark in
-                                        viewModel.updateLoggedSet(
-                                            exerciseId: row.exerciseId,
-                                            setIndex: row.setIndex,
-                                            weight: w,
-                                            reps: r,
-                                            markUserEntry: mark
+                                Group {
+                                    if section.kind == .cardio {
+                                        WorkoutCardioSetRowView(
+                                            row: row,
+                                            focusField: $fieldFocus,
+                                            onCommitRow: { minutes, maxHR, mark in
+                                                viewModel.updateCardioLoggedSet(
+                                                    exerciseId: row.exerciseId,
+                                                    setIndex: row.setIndex,
+                                                    minutes: minutes,
+                                                    maxHeartRate: maxHR,
+                                                    markUserEntry: mark
+                                                )
+                                            }
+                                        )
+                                    } else {
+                                        WorkoutSetRowView(
+                                            row: row,
+                                            repsArePerSide: section.repsArePerSide,
+                                            focusField: $fieldFocus,
+                                            onCommitRow: { w, r, mark in
+                                                viewModel.updateLoggedSet(
+                                                    exerciseId: row.exerciseId,
+                                                    setIndex: row.setIndex,
+                                                    weight: w,
+                                                    reps: r,
+                                                    markUserEntry: mark
+                                                )
+                                            }
                                         )
                                     }
-                                )
+                                }
                                 .listRowBackground(Color.clear)
                             }
                         } header: {
@@ -517,6 +539,251 @@ private struct WorkoutSetRowView: View {
             repsText = ""
         } else {
             repsText = "\(row.referenceReps)"
+        }
+    }
+
+    private func numericBlock(
+        label: String,
+        text: Binding<String>,
+        focus: LoggingFieldFocus,
+        keyboard: UIKeyboardType,
+        onCommit: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Group {
+                switch setFieldChrome {
+                case .neutral:
+                    TextField(
+                        "",
+                        text: text,
+                        prompt: Text("0").foregroundStyle(.tertiary)
+                    )
+                    .keyboardType(keyboard)
+                    .font(.title2.monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(.roundedBorder)
+                case .previousSession:
+                    TextField(
+                        "",
+                        text: text,
+                        prompt: Text("0").foregroundStyle(.white.opacity(0.55))
+                    )
+                    .keyboardType(keyboard)
+                    .font(.title2.monospacedDigit())
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .background(previousSessionFieldFill)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHint("Value from your last completed session for this workout.")
+                case .userEntered:
+                    TextField(
+                        "",
+                        text: text,
+                        prompt: Text("0").foregroundStyle(enteredFieldForeground.opacity(0.45))
+                    )
+                    .keyboardType(keyboard)
+                    .font(.title2.monospacedDigit())
+                    .foregroundStyle(enteredFieldForeground)
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .background(enteredFieldFill)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+            .tint(fieldCaretTint)
+            .focused(focusField, equals: focus)
+            .frame(minHeight: 44)
+            .onSubmit(onCommit)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Cardio counterpart of `WorkoutSetRowView`: minutes + max heart rate instead of weight/reps, same chrome/commit behavior.
+private struct WorkoutCardioSetRowView: View {
+    let row: WorkoutLoggingViewModel.SetRow
+    var focusField: FocusState<LoggingFieldFocus?>.Binding
+    let onCommitRow: (Double, Int, Bool) -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var minutesText = ""
+    @State private var maxHRText = ""
+    @State private var minutesSnapshotOnFocus: String?
+    @State private var maxHRSnapshotOnFocus: String?
+
+    private var rowFocusId: String { row.id }
+
+    private enum SetFieldChrome {
+        case neutral
+        case previousSession
+        case userEntered
+    }
+
+    private var setFieldChrome: SetFieldChrome {
+        if row.isEntered { return .userEntered }
+        if row.referenceCardioMinutes > 0 || row.referenceMaxHeartRate > 0 { return .previousSession }
+        return .neutral
+    }
+
+    private var previousSessionFieldFill: Color {
+        Color(red: 0.9, green: 0.45, blue: 0.05)
+    }
+
+    private var enteredFieldFill: Color {
+        colorScheme == .dark ? Color(white: 0.95) : Color.black
+    }
+
+    private var enteredFieldForeground: Color {
+        colorScheme == .dark ? Color.black : Color.white
+    }
+
+    private var fieldCaretTint: Color {
+        switch setFieldChrome {
+        case .neutral: return Color.accentColor
+        case .previousSession: return .white
+        case .userEntered: return enteredFieldForeground
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Set \(row.setNumber)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 16) {
+                numericBlock(
+                    label: "Minutes",
+                    text: $minutesText,
+                    focus: .cardioMinutes(rowFocusId),
+                    keyboard: .decimalPad,
+                    onCommit: commitRowFromFields
+                )
+                numericBlock(
+                    label: "Max HR (bpm)",
+                    text: $maxHRText,
+                    focus: .cardioMaxHeartRate(rowFocusId),
+                    keyboard: .numberPad,
+                    onCommit: commitRowFromFields
+                )
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear {
+            minutesSnapshotOnFocus = nil
+            maxHRSnapshotOnFocus = nil
+            syncFieldsFromRow()
+        }
+        .onChange(of: row.id) { _, _ in
+            minutesSnapshotOnFocus = nil
+            maxHRSnapshotOnFocus = nil
+            syncFieldsFromRow()
+        }
+        .onChange(of: row.isEntered) { _, _ in
+            minutesSnapshotOnFocus = nil
+            maxHRSnapshotOnFocus = nil
+            syncFieldsFromRow()
+        }
+        .onChange(of: focusField.wrappedValue) { _, new in
+            switch new {
+            case .cardioMinutes(let id) where id == rowFocusId:
+                minutesSnapshotOnFocus = minutesText
+            case .cardioMaxHeartRate(let id) where id == rowFocusId:
+                maxHRSnapshotOnFocus = maxHRText
+            default:
+                break
+            }
+        }
+        .onChange(of: row.cardioMinutes) { _, _ in
+            if focusField.wrappedValue != .cardioMinutes(rowFocusId) { syncMinutesFromRow() }
+        }
+        .onChange(of: row.maxHeartRate) { _, _ in
+            if focusField.wrappedValue != .cardioMaxHeartRate(rowFocusId) { syncMaxHRFromRow() }
+        }
+        .onChange(of: row.referenceCardioMinutes) { _, _ in
+            if focusField.wrappedValue != .cardioMinutes(rowFocusId) { syncMinutesFromRow() }
+        }
+        .onChange(of: row.referenceMaxHeartRate) { _, _ in
+            if focusField.wrappedValue != .cardioMaxHeartRate(rowFocusId) { syncMaxHRFromRow() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workoutLoggingCommitKeyedField)) { note in
+            guard let key = note.userInfo?["commitKey"] as? String else { return }
+            if key == "cm:\(rowFocusId)" || key == "chr:\(rowFocusId)" {
+                commitRowFromFields()
+            }
+        }
+    }
+
+    private func commitRowFromFields() {
+        let m = parsedMinutes(from: minutesText)
+        let hr = parsedMaxHR(from: maxHRText)
+        let mark = shouldMarkUserEntry(parsedM: m, parsedHR: hr)
+        onCommitRow(m, hr, mark)
+    }
+
+    private func shouldMarkUserEntry(parsedM: Double, parsedHR: Int) -> Bool {
+        if row.isEntered { return true }
+        let touchedSinceFocus = minutesSnapshotOnFocus != nil || maxHRSnapshotOnFocus != nil
+        if touchedSinceFocus {
+            return true
+        }
+        let mDirty = abs(parsedM - row.referenceCardioMinutes) > 1e-6
+        let hrDirty = parsedHR != row.referenceMaxHeartRate
+        return mDirty || hrDirty
+    }
+
+    private func normalizedMinutesText(_ s: String) -> String {
+        s.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func parsedMinutes(from text: String) -> Double {
+        let n = normalizedMinutesText(text)
+        let v = Double(n) ?? 0
+        return max(0, v)
+    }
+
+    private func parsedMaxHR(from text: String) -> Int {
+        let v = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        return max(0, v)
+    }
+
+    private func syncFieldsFromRow() {
+        syncMinutesFromRow()
+        syncMaxHRFromRow()
+    }
+
+    private func syncMinutesFromRow() {
+        if row.isEntered {
+            if row.cardioMinutes == 0 {
+                minutesText = ""
+            } else if row.cardioMinutes == floor(row.cardioMinutes) {
+                minutesText = String(Int(row.cardioMinutes))
+            } else {
+                minutesText = String(row.cardioMinutes)
+            }
+        } else if row.referenceCardioMinutes == 0 {
+            minutesText = ""
+        } else if row.referenceCardioMinutes == floor(row.referenceCardioMinutes) {
+            minutesText = String(Int(row.referenceCardioMinutes))
+        } else {
+            minutesText = String(row.referenceCardioMinutes)
+        }
+    }
+
+    private func syncMaxHRFromRow() {
+        if row.isEntered {
+            maxHRText = row.maxHeartRate == 0 ? "" : "\(row.maxHeartRate)"
+        } else if row.referenceMaxHeartRate == 0 {
+            maxHRText = ""
+        } else {
+            maxHRText = "\(row.referenceMaxHeartRate)"
         }
     }
 

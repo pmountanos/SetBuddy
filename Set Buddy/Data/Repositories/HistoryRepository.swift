@@ -23,6 +23,10 @@ struct HistorySessionSetLine: Identifiable, Sendable {
     let reps: Int
     /// When true, volume for this set used the per-side multiplier (×2).
     let repsArePerSide: Bool
+    /// Strength (weight/reps) or cardio (minutes/max heart rate).
+    let kind: ExerciseKind
+    let cardioMinutes: Double
+    let maxHeartRate: Int
 }
 
 struct HistorySessionExerciseGroup: Identifiable, Sendable {
@@ -71,6 +75,19 @@ struct HistoryRepository {
             }
         }
         return names
+    }
+
+    /// Kinds for the active program's exercises, keyed by id (empty when there is no active program) — same
+    /// carried-over-id fallback reasoning as `currentProgramExerciseNames`.
+    private func currentProgramExerciseKinds() throws -> [UUID: ExerciseKind] {
+        guard let program = try ProgramRepository(modelContext: modelContext).activeProgram() else { return [:] }
+        var kinds: [UUID: ExerciseKind] = [:]
+        for workout in program.workouts {
+            for exercise in workout.exercises {
+                kinds[exercise.id] = exercise.kind
+            }
+        }
+        return kinds
     }
 
     func completedRows(limit: Int = 50) throws -> [HistoryCompletedRow] {
@@ -141,14 +158,25 @@ struct HistoryRepository {
             return currentExerciseNames[exerciseId] ?? "Exercise"
         }
 
+        let currentExerciseKinds = try currentProgramExerciseKinds()
+        func kind(for exerciseId: UUID) -> ExerciseKind {
+            if let kind = template?.exercises.first(where: { $0.id == exerciseId })?.kind {
+                return kind
+            }
+            return currentExerciseKinds[exerciseId] ?? .strength
+        }
+
         var exerciseGroups: [HistorySessionExerciseGroup] = []
         var totalVolume = 0.0
         for exerciseId in orderedIds {
             guard let rows = grouped[exerciseId] else { continue }
+            let exerciseKind = kind(for: exerciseId)
             let sortedRows = rows.sorted { $0.setIndex < $1.setIndex }
             var exerciseVol = 0.0
             let lines: [HistorySessionSetLine] = sortedRows.enumerated().map { _, row in
-                let v = VolumeCalculator.setVolume(weight: row.weight, reps: row.reps, repsArePerSide: row.repsArePerSide)
+                let v = exerciseKind == .cardio
+                    ? 0
+                    : VolumeCalculator.setVolume(weight: row.weight, reps: row.reps, repsArePerSide: row.repsArePerSide)
                 exerciseVol += v
                 return HistorySessionSetLine(
                     exerciseId: exerciseId,
@@ -156,7 +184,10 @@ struct HistoryRepository {
                     setNumber: row.setIndex + 1,
                     weight: row.weight,
                     reps: row.reps,
-                    repsArePerSide: row.repsArePerSide
+                    repsArePerSide: row.repsArePerSide,
+                    kind: exerciseKind,
+                    cardioMinutes: row.cardioMinutes,
+                    maxHeartRate: row.maxHeartRate
                 )
             }
             totalVolume += exerciseVol

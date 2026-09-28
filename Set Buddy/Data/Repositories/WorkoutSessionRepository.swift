@@ -99,6 +99,15 @@ struct WorkoutSessionRepository {
         try modelContext.save()
     }
 
+    /// Cardio counterpart of `updateLoggedSet` — records minutes/max heart rate instead of weight/reps.
+    func updateCardioLoggedSet(session: PersistedWorkoutSession, exerciseId: UUID, setIndex: Int, minutes: Double, maxHeartRate: Int) throws {
+        guard let logged = session.loggedSets.first(where: { $0.exerciseId == exerciseId && $0.setIndex == setIndex }) else { return }
+        logged.cardioMinutes = max(0, minutes)
+        logged.maxHeartRate = max(0, maxHeartRate)
+        logged.userEditedValues = true
+        try modelContext.save()
+    }
+
     /// Drops rows the user never entered, snapshots the workout title, and marks the session complete.
     func completeSession(_ session: PersistedWorkoutSession, workoutTitle: String) throws {
         for logged in session.loggedSets where !logged.userEditedValues {

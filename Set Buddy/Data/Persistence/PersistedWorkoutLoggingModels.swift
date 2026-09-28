@@ -17,6 +17,8 @@ final class PersistedExercise {
     var note: String?
     /// When true, logged reps are **per side** (e.g. dumbbell); volume for each set counts both sides (×2).
     var repsArePerSide: Bool
+    /// Strength (weight/reps) or cardio (minutes/max heart rate). Drives which fields the logger shows.
+    var kind: ExerciseKind
     var workout: PersistedWorkout?
 
     init(
@@ -25,7 +27,8 @@ final class PersistedExercise {
         sortOrder: Int,
         setCount: Int,
         note: String? = nil,
-        repsArePerSide: Bool = false
+        repsArePerSide: Bool = false,
+        kind: ExerciseKind = .strength
     ) {
         self.id = id
         self.name = name
@@ -33,6 +36,7 @@ final class PersistedExercise {
         self.setCount = setCount
         self.note = note
         self.repsArePerSide = repsArePerSide
+        self.kind = kind
     }
 }
 
@@ -82,6 +86,9 @@ final class PersistedLoggedSet {
     var setIndex: Int
     var weight: Double
     var reps: Int
+    /// Cardio-exercise values (unused/zero for strength sets).
+    var cardioMinutes: Double
+    var maxHeartRate: Int
     /// True when weight/reps were copied from the last completed session for this template.
     var seededFromCarryover: Bool
     /// True after the user changes weight or reps for this set in the current session.
@@ -95,6 +102,8 @@ final class PersistedLoggedSet {
         setIndex: Int,
         weight: Double = 0,
         reps: Int = 0,
+        cardioMinutes: Double = 0,
+        maxHeartRate: Int = 0,
         seededFromCarryover: Bool = false,
         repsArePerSide: Bool = false
     ) {
@@ -102,6 +111,8 @@ final class PersistedLoggedSet {
         self.setIndex = setIndex
         self.weight = weight
         self.reps = reps
+        self.cardioMinutes = cardioMinutes
+        self.maxHeartRate = maxHeartRate
         self.seededFromCarryover = seededFromCarryover
         self.userEditedValues = false
         self.repsArePerSide = repsArePerSide

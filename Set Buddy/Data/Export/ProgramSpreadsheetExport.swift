@@ -11,6 +11,7 @@ enum ProgramSpreadsheetExport {
         .text("Exercise_Name"),
         .text("Notes"),
         .text("Per side"),
+        .text("Type"),
     ]
 
     static func buildXlsx(program: PersistedProgram) throws -> Data {
@@ -35,10 +36,11 @@ enum ProgramSpreadsheetExport {
                     .text(ex.name),
                     .text(ex.note ?? ""),
                     .text(perCell),
+                    .text(ex.kind.rawValue),
                 ])
             }
             if rows.count == 1 {
-                rows.append([.text(""), .text(""), .text("")])
+                rows.append([.text(""), .text(""), .text(""), .text("")])
             }
             let xml = SpreadsheetFormatting.worksheetData(rows: rows)
             sheets.append((name: name, worksheetPath: path, worksheetData: xml))
@@ -60,11 +62,11 @@ enum ProgramSpreadsheetExport {
         }
         for w in workouts {
             lines.append("workout,\(SpreadsheetFormatting.csvEscape(w.name)),,,")
-            lines.append("column,sort_order,exercise_name,set_count,note,per_side")
+            lines.append("column,sort_order,exercise_name,set_count,note,per_side,type")
             let exercises = w.exercises.sorted { $0.sortOrder < $1.sortOrder }
             for ex in exercises {
                 lines.append(
-                    "exercise,\(ex.sortOrder),\(SpreadsheetFormatting.csvEscape(ex.name)),\(ex.setCount),\(SpreadsheetFormatting.csvEscape(ex.note ?? "")),\(ex.repsArePerSide ? "yes" : "no")"
+                    "exercise,\(ex.sortOrder),\(SpreadsheetFormatting.csvEscape(ex.name)),\(ex.setCount),\(SpreadsheetFormatting.csvEscape(ex.note ?? "")),\(ex.repsArePerSide ? "yes" : "no"),\(ex.kind.rawValue)"
                 )
             }
         }

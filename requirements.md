@@ -192,6 +192,14 @@ Advanced analytics are out of scope for the first release.
 
 **As-built:** **`ExerciseCarryoverMatcher`** (exact pass, then greedy best-score assignment for matches `>= 0.75` similarity via **`StringSimilarity`**’s Levenshtein ratio) runs when a file is picked (**`ImportViewModel.stageImportFromPickedFile`**); suggestions appear as pre-checked toggles in a **“Carry over previous weights”** section on the import staging sheet. Confirmed matches are passed to **`ProgramXlsxImporter.importReplacingStore(..., exerciseCarryover:)`**, which reuses the old exercise’s id so **`WorkoutSessionRepository.mostRecentLoggedValuesByExercise`** keeps finding its logged history.
 
+### 17. Cardio Exercises (as-built)
+- The user must be able to mark an exercise as **cardio** instead of strength, both as a standalone workout day (e.g. a dedicated "Cardio" day, alongside Push 1/Pull 1/Legs 1/Rest) and as one exercise within an otherwise-strength workout (e.g. finishing a lifting session with a cardio set).
+- Cardio sets must track **total minutes** and **max heart rate** instead of weight/reps.
+- Cardio sets must follow the same reference-value carryover, only-entered-sets-are-saved, and set-count behavior as strength sets — no separate interaction model.
+- Cardio sets must not contribute to weight × reps volume; History and exports must still record their minutes/max heart rate.
+
+**As-built:** **`ExerciseKind`** (`.strength` / `.cardio`) on **`PersistedExercise`**, set via a **Strength/Cardio** segmented control in the workout template editor (replaces the "Per side" toggle for cardio exercises). A "Cardio day" is just a normal workout template made up of cardio exercises — no separate schedule-day concept was needed since **`ScheduledDayKind`**/the workout picker already accept any named workout. **`PersistedLoggedSet`** gained `cardioMinutes`/`maxHeartRate` fields alongside the existing `weight`/`reps`; **`WorkoutLoggingScreen`** renders **Minutes**/**Max HR (bpm)** fields (same reference/entered chrome as weight/reps) when the exercise's section is cardio, via a parallel **`WorkoutCardioSetRowView`**. History and both spreadsheet exports (program `Type` column; history `type`/`cardio_minutes`/`max_heart_rate` columns) carry the new fields; volume calculations skip cardio sets. `.xlsx` **import** does not yet parse a cardio column — cardio exercises are added/marked in-app after import.
+
 ## User Interface Requirements
 
 ### Workout Logging Screen

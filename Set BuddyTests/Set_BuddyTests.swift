@@ -1037,4 +1037,226 @@ struct Set_BuddyTests {
         let newExercise = try #require(newProgram.workouts.first?.exercises.first)
         #expect(newExercise.id != exercise.id)
     }
+
+    // MARK: - Cardio exercises
+
+    @Test func setExerciseKindPersists() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Cardio")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Run", sortOrder: 0, setCount: 1)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        #expect(exercise.kind == .strength)
+        let repo = ProgramRepository(modelContext: context)
+        try repo.setExerciseKind(id: exercise.id, kind: .cardio)
+        #expect(exercise.kind == .cardio)
+    }
+
+    @Test func updateCardioLoggedSetRecordsMinutesAndMaxHeartRateAndClampsNegatives() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Cardio")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Run", sortOrder: 0, setCount: 1, kind: .cardio)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+
+        try repo.updateCardioLoggedSet(session: session, exerciseId: exercise.id, setIndex: 0, minutes: -5, maxHeartRate: -10)
+        let row = try #require(session.loggedSets.first)
+        #expect(row.cardioMinutes == 0)
+        #expect(row.maxHeartRate == 0)
+        #expect(row.userEditedValues == true)
+
+        try repo.updateCardioLoggedSet(session: session, exerciseId: exercise.id, setIndex: 0, minutes: 22.5, maxHeartRate: 158)
+        #expect(row.cardioMinutes == 22.5)
+        #expect(row.maxHeartRate == 158)
+        // Strength fields stay untouched by the cardio update.
+        #expect(row.weight == 0)
+        #expect(row.reps == 0)
+    }
+
+    @Test func workoutTemplateEditorPersistsExerciseKind() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        let program = try repo.createFirstProgram(name: "Test")
+        let workout = try #require(program.workouts.first)
+        let outline = try #require(try ProgramOutlineRepository(modelContext: context).activeProgramOutline())
+        let workoutOutline = try #require(outline.workouts.first(where: { $0.id == workout.id }))
+
+        let editor = WorkoutTemplateEditorViewModel(modelContext: context)
+        editor.present(workout: workoutOutline)
+        #expect(editor.rows.first?.kind == .strength)
+
+        let exerciseId = try #require(editor.rows.first?.id)
+        editor.persistExerciseKind(exerciseId: exerciseId, kind: .cardio)
+
+        let refreshed = try #require(try ProgramOutlineRepository(modelContext: context).activeProgramOutline())
+        let refreshedExercise = try #require(refreshed.workouts.first?.exercises.first)
+        #expect(refreshedExercise.kind == .cardio)
+    }
+
+    @Test @MainActor func workoutLoggingViewModelShowsCardioReferenceValuesAndPersistsEntry() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Cardio")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Run", sortOrder: 0, setCount: 1, kind: .cardio)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+
+        // A prior completed session supplies the reference (last time's) minutes/max heart rate.
+        let priorSession = PersistedWorkoutSession(
+            workoutTemplateId: workout.id, scheduleYear: 2026, scheduleMonth: 1, scheduleDay: 1
+        )
+        priorSession.isComplete = true
+        priorSession.completedAt = Date().addingTimeInterval(-86400)
+        let priorSet = PersistedLoggedSet(exerciseId: exercise.id, setIndex: 0, cardioMinutes: 20, maxHeartRate: 150)
+        priorSet.userEditedValues = true
+        priorSet.session = priorSession
+        priorSession.loggedSets.append(priorSet)
+
+        context.insert(program)
+        context.insert(priorSession)
+        try context.save()
+
+        let router = AppRouter()
+        router.selectedWorkoutId = workout.id
+        let viewModel = WorkoutLoggingViewModel(modelContext: context, router: router, dateProvider: StubDateProvider(now: Date()))
+        viewModel.loadFromRouter()
+
+        let section = try #require(viewModel.sections.first)
+        #expect(section.kind == .cardio)
+        let row = try #require(section.rows.first)
+        #expect(row.referenceCardioMinutes == 20)
+        #expect(row.referenceMaxHeartRate == 150)
+        #expect(row.isEntered == false)
+
+        viewModel.updateCardioLoggedSet(exerciseId: exercise.id, setIndex: 0, minutes: 25, maxHeartRate: 162, markUserEntry: true)
+        let enteredRow = try #require(viewModel.sections.first?.rows.first)
+        #expect(enteredRow.isEntered == true)
+        #expect(enteredRow.cardioMinutes == 25)
+        #expect(enteredRow.maxHeartRate == 162)
+
+        // Cardio sets don't contribute to weight×reps session volume.
+        #expect(viewModel.sessionVolume == 0)
+    }
+
+    @Test @MainActor func historySessionDetailExcludesCardioFromVolumeAndKeepsMinutesAndHeartRate() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Mixed")
+        workout.program = program
+        program.workouts.append(workout)
+        let strength = PersistedExercise(name: "Bench", sortOrder: 0, setCount: 1)
+        strength.workout = workout
+        let cardio = PersistedExercise(name: "Run", sortOrder: 1, setCount: 1, kind: .cardio)
+        cardio.workout = workout
+        workout.exercises.append(contentsOf: [strength, cardio])
+
+        let session = PersistedWorkoutSession(
+            workoutTemplateId: workout.id, scheduleYear: 2026, scheduleMonth: 1, scheduleDay: 1
+        )
+        session.isComplete = true
+        session.completedAt = Date()
+        session.workoutTitleSnapshot = "Mixed"
+        let strengthSet = PersistedLoggedSet(exerciseId: strength.id, setIndex: 0, weight: 100, reps: 5)
+        strengthSet.userEditedValues = true
+        strengthSet.session = session
+        let cardioSet = PersistedLoggedSet(exerciseId: cardio.id, setIndex: 0, cardioMinutes: 30, maxHeartRate: 170)
+        cardioSet.userEditedValues = true
+        cardioSet.session = session
+        session.loggedSets.append(contentsOf: [strengthSet, cardioSet])
+
+        context.insert(program)
+        context.insert(session)
+        try context.save()
+
+        let detail = try #require(try HistoryRepository(modelContext: context).sessionDetail(sessionId: session.id))
+        #expect(detail.totalVolume == 500) // 100 * 5 from the strength set only.
+
+        let cardioGroup = try #require(detail.exercises.first { $0.name == "Run" })
+        #expect(cardioGroup.volume == 0)
+        let cardioLine = try #require(cardioGroup.sets.first)
+        #expect(cardioLine.kind == .cardio)
+        #expect(cardioLine.cardioMinutes == 30)
+        #expect(cardioLine.maxHeartRate == 170)
+
+        let strengthGroup = try #require(detail.exercises.first { $0.name == "Bench" })
+        #expect(strengthGroup.volume == 500)
+    }
+
+    @Test func historySpreadsheetExportIncludesCardioColumns() throws {
+        let session = HistorySessionDetail(
+            id: UUID(),
+            completedAt: Date(),
+            workoutTitle: "Cardio Day",
+            totalVolume: 0,
+            scheduleDayLabel: nil,
+            sessionNote: nil,
+            exercises: [
+                HistorySessionExerciseGroup(
+                    exerciseId: UUID(),
+                    name: "Run",
+                    volume: 0,
+                    sets: [
+                        HistorySessionSetLine(
+                            exerciseId: UUID(),
+                            setIndex: 0,
+                            setNumber: 1,
+                            weight: 0,
+                            reps: 0,
+                            repsArePerSide: false,
+                            kind: .cardio,
+                            cardioMinutes: 30,
+                            maxHeartRate: 170
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let csvData = try HistorySpreadsheetExport.buildCsv(sessions: [session])
+        let csvText = try #require(String(data: csvData.dropFirst(3), encoding: .utf8))
+        #expect(csvText.contains("cardio,30.0,170"))
+
+        let xlsxData = try HistorySpreadsheetExport.buildXlsx(sessions: [session])
+        let sheetXml = try XlsxArchiveReader.extract("xl/worksheets/sheet1.xml", fromXlsx: xlsxData)
+        let sheetText = try #require(String(data: sheetXml, encoding: .utf8))
+        #expect(sheetText.contains("cardio"))
+    }
+
+    @Test func programSpreadsheetExportIncludesExerciseType() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let repo = ProgramRepository(modelContext: context)
+        let program = try repo.createFirstProgram(name: "Type Export")
+        let workout = try #require(program.workouts.first)
+        let exercise = try #require(workout.exercises.first)
+        try repo.setExerciseKind(id: exercise.id, kind: .cardio)
+
+        let data = try ProgramSpreadsheetExport.buildXlsx(program: program)
+        let sheetXml = try XlsxArchiveReader.extract("xl/worksheets/sheet1.xml", fromXlsx: data)
+        let sheetText = try #require(String(data: sheetXml, encoding: .utf8))
+        #expect(sheetText.contains("cardio"))
+    }
 }

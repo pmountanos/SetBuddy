@@ -434,6 +434,12 @@ struct ProgramRepository {
         try modelContext.save()
     }
 
+    func setExerciseKind(id: UUID, kind: ExerciseKind) throws {
+        let ex = try requireExercise(id: id)
+        ex.kind = kind
+        try modelContext.save()
+    }
+
     /// Trims and nils out empty text — parity with `setExerciseName`. Used by both the Program tab and the workout logger so note-saving isn’t duplicated per screen.
     func setExerciseNote(id: UUID, note: String?) throws {
         let ex = try requireExercise(id: id)

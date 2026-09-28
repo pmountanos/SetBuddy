@@ -14,6 +14,8 @@ struct ProgramExerciseOutline: Identifiable, Sendable {
     let setCount: Int
     /// Imported / template flag: reps logged per side (volume ×2).
     let repsArePerSide: Bool
+    /// Strength (weight/reps) or cardio (minutes/max heart rate).
+    let kind: ExerciseKind
 
     var hasNonEmptyNote: Bool {
         !(note?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
@@ -67,7 +69,8 @@ struct ProgramOutlineRepository {
                         name: $0.name,
                         note: $0.note,
                         setCount: $0.setCount,
-                        repsArePerSide: $0.repsArePerSide
+                        repsArePerSide: $0.repsArePerSide,
+                        kind: $0.kind
                     )
                 }
             return ProgramWorkoutOutline(id: workout.id, name: workout.name, exercises: exercises)
