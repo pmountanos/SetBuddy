@@ -17,12 +17,25 @@ struct XlsxImportedExercise: Sendable {
     let note: String?
     /// Per-side flag from the mapped “per side” column (`x`, `TRUE`, `1`, `yes`, …): volume ×2.
     let repsArePerSide: Bool
+    /// Strength (weight/reps) or cardio (minutes/max heart rate) — see `cardioSectionHeaderRow`.
+    let kind: ExerciseKind
+
+    init(name: String, note: String?, repsArePerSide: Bool, kind: ExerciseKind = .strength) {
+        self.name = name
+        self.note = note
+        self.repsArePerSide = repsArePerSide
+        self.kind = kind
+    }
 }
 
 /// Parses `.xlsx` workbooks where each **worksheet** is one day in the rotation.
 /// Workout days: **A** = exercise name (unless row‑1 headers say otherwise). **Notes** and **per‑side** columns
 /// are detected from row‑1 headers (`Notes`, `Per side`, `Per Set`, …). Legacy default if no headers: **B** = note, **C** = per‑side.
 /// Rest days: sheet name contains `"rest"` (case‑insensitive) **or** the sheet has no exercise rows.
+/// Cardio: a row whose columns read **Minutes** / **Peak HR** (or a close synonym) marks the start of a cardio
+/// section — every name below it, to the end of the sheet, becomes a cardio exercise (minutes/max heart rate
+/// instead of weight/reps). A sheet can be all cardio (whole cardio day) or strength rows followed by a cardio
+/// section (e.g. finishing a lift day with a cardio set) — see `ExerciseCarryoverMatcher`-adjacent tests.
 enum ProgramXlsxParser {
     private static let defaultSetsPerExercise = 4
 
@@ -41,7 +54,12 @@ enum ProgramXlsxParser {
             let entryPath = "xl/" + target.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let sheetData = try XlsxArchiveReader.extract(entryPath, fromXlsx: xlsxData)
             let cells = SheetCellsParser.parse(data: sheetData, sharedStrings: sharedStrings)
-            let exercises = exercisesFromCells(cells)
+            let cardioHeaderRow = cardioSectionHeaderRow(cells: cells)
+            let strengthExercises = exercisesFromCells(cells, beforeRow: cardioHeaderRow)
+            let cardioExercises = cardioHeaderRow.map {
+                cardioExercisesFromCells(cells, afterRow: $0, nameCol: importColumnMapping(cells: cells).nameCol)
+            } ?? []
+            let exercises = strengthExercises + cardioExercises
             let restByName = spec.name.range(of: "rest", options: .caseInsensitive) != nil
             let isRest = restByName || exercises.isEmpty
             cycle.append(
@@ -61,7 +79,9 @@ enum ProgramXlsxParser {
     static var defaultSetCountPerExercise: Int { defaultSetsPerExercise }
 
     /// Builds exercise rows from sheet cell map (`A1`-style keys). `internal` for `@testable` unit tests.
-    static func exercisesFromCells(_ cells: [String: String]) -> [XlsxImportedExercise] {
+    /// - Parameter beforeRow: When given (a cardio section header was found), rows at or past it are excluded —
+    ///   they belong to `cardioExercisesFromCells` instead.
+    static func exercisesFromCells(_ cells: [String: String], beforeRow: Int? = nil) -> [XlsxImportedExercise] {
         let mapping = importColumnMapping(cells: cells)
         var rowNumbers = Set<Int>()
         for key in cells.keys {
@@ -71,6 +91,7 @@ enum ProgramXlsxParser {
         let sortedRows = rowNumbers.filter { $0 >= 1 }.sorted()
         var result: [XlsxImportedExercise] = []
         for row in sortedRows {
+            if let limit = beforeRow, row >= limit { continue }
             guard let rawName = cells[address(col: mapping.nameCol, row: row)]?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !rawName.isEmpty
             else { continue }
@@ -88,6 +109,57 @@ enum ProgramXlsxParser {
             result.append(XlsxImportedExercise(name: rawName, note: note, repsArePerSide: perSide))
         }
         return result
+    }
+
+    /// Row (1-based) of a **Minutes** / **Peak HR** (or synonym) header pair marking where a cardio section
+    /// starts, if the sheet has one — searched left-to-right, top-to-bottom, first match wins.
+    static func cardioSectionHeaderRow(cells: [String: String]) -> Int? {
+        var rowNumbers = Set<Int>()
+        for key in cells.keys {
+            let (_, row) = parseCellAddress(key)
+            rowNumbers.insert(row)
+        }
+        let scanCols = ["A", "B", "C", "D", "E", "F", "G", "H"]
+        for row in rowNumbers.sorted() {
+            for index in 0 ..< (scanCols.count - 1) {
+                let raw = cells[address(col: scanCols[index], row: row)]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                guard headerIsMinutesColumnTitle(raw) else { continue }
+                let nextRaw = cells[address(col: scanCols[index + 1], row: row)]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                if headerIsMaxHeartRateColumnTitle(nextRaw) {
+                    return row
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Cardio exercise rows after a cardio section header — name only (same name column as the strength table
+    /// above it, or **A** when the sheet is cardio-only); minutes/max heart rate are logged per session, not imported.
+    private static func cardioExercisesFromCells(_ cells: [String: String], afterRow: Int, nameCol: String) -> [XlsxImportedExercise] {
+        var rowNumbers = Set<Int>()
+        for key in cells.keys {
+            let (_, row) = parseCellAddress(key)
+            rowNumbers.insert(row)
+        }
+        let sortedRows = rowNumbers.filter { $0 > afterRow }.sorted()
+        var result: [XlsxImportedExercise] = []
+        for row in sortedRows {
+            guard let rawName = cells[address(col: nameCol, row: row)]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawName.isEmpty
+            else { continue }
+            result.append(XlsxImportedExercise(name: rawName, note: nil, repsArePerSide: false, kind: .cardio))
+        }
+        return result
+    }
+
+    private static func headerIsMinutesColumnTitle(_ low: String) -> Bool {
+        low == "minutes" || low == "min" || low == "mins"
+    }
+
+    private static func headerIsMaxHeartRateColumnTitle(_ low: String) -> Bool {
+        low == "peak hr" || low == "max hr" || low == "max heart rate" || low == "peak heart rate" || low == "heart rate" || low == "hr"
     }
 
     private struct ImportColumnMapping {

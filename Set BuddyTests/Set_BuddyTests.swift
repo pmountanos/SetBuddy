@@ -12,6 +12,7 @@ import Testing
 
 private final class ImportTestBundleToken {}
 private final class SetBuddy2FixtureToken {}
+private final class SetBuddy4FixtureToken {}
 
 private struct StubDateProvider: DateProviding {
     let now: Date
@@ -1258,5 +1259,115 @@ struct Set_BuddyTests {
         let sheetXml = try XlsxArchiveReader.extract("xl/worksheets/sheet1.xml", fromXlsx: data)
         let sheetText = try #require(String(data: sheetXml, encoding: .utf8))
         #expect(sheetText.contains("cardio"))
+    }
+
+    // MARK: - Cardio spreadsheet import (Minutes / Peak HR section header)
+
+    @Test func cardioSectionHeaderRowFindsMinutesPeakHrPair() {
+        let cells: [String: String] = [
+            "A1": "Excercise_Name", "B1": "Per side", "C1": "Notes",
+            "A2": "Bench Press",
+            "B10": "Minutes", "C10": "Peak HR",
+            "A11": "Cardio",
+        ]
+        #expect(ProgramXlsxParser.cardioSectionHeaderRow(cells: cells) == 10)
+    }
+
+    @Test func cardioSectionHeaderRowAcceptsSynonymsAndIsNilWhenAbsent() {
+        let withSynonym: [String: String] = ["B5": "Min", "C5": "Max HR"]
+        #expect(ProgramXlsxParser.cardioSectionHeaderRow(cells: withSynonym) == 5)
+
+        let withoutSection: [String: String] = ["A1": "Excercise_Name", "A2": "Bench Press"]
+        #expect(ProgramXlsxParser.cardioSectionHeaderRow(cells: withoutSection) == nil)
+    }
+
+    @Test func exercisesFromCellsExcludesRowsAtOrPastCardioHeader() {
+        let cells: [String: String] = [
+            "A1": "Excercise_Name", "B1": "Per side", "C1": "Notes",
+            "A2": "Bench Press", "B2": "x",
+            "A3": "Barbell Row",
+            "B10": "Minutes", "C10": "Peak HR",
+            "A11": "Cardio",
+        ]
+        let strength = ProgramXlsxParser.exercisesFromCells(cells, beforeRow: 10)
+        #expect(strength.count == 2)
+        #expect(strength.allSatisfy { $0.kind == .strength })
+        #expect(strength.map(\.name) == ["Bench Press", "Barbell Row"])
+    }
+
+    @Test func parsesSheetWithStrengthRowsThenTrailingCardioSet() throws {
+        // Mirrors the "Push 1" tab in Set Buddy-4.xlsx: strength rows, then a Minutes/Peak HR
+        // header, then one cardio row — a lift day finished with a cardio set.
+        let cells: [String: String] = [
+            "A1": "Excercise_Name", "B1": "Per side", "C1": "Notes",
+            "A2": "Bench Press", "B2": "x",
+            "A3": "Barbell Row",
+            "B4": "Minutes", "C4": "Peak HR",
+            "A5": "Cardio",
+        ]
+        let cardioRow = try #require(ProgramXlsxParser.cardioSectionHeaderRow(cells: cells))
+        let strength = ProgramXlsxParser.exercisesFromCells(cells, beforeRow: cardioRow)
+        #expect(strength.map(\.name) == ["Bench Press", "Barbell Row"])
+        #expect(strength.allSatisfy { $0.kind == .strength })
+    }
+
+    @Test func parsesSetBuddy4Fixture_cardioSectionsAndWholeCardioDays() throws {
+        let bundle = Bundle(for: SetBuddy4FixtureToken.self)
+        guard let url = bundle.url(forResource: "Set Buddy-4", withExtension: "xlsx") else {
+            Issue.record("Add Fixtures/Set Buddy-4.xlsx to the Set BuddyTests folder (synced into the test bundle).")
+            return
+        }
+        let data = try Data(contentsOf: url)
+        let cycle = try ProgramXlsxParser.parse(xlsxData: data)
+
+        // "Push 1": 8 strength exercises, then a trailing "Cardio" set.
+        let push1 = try #require(cycle.first { $0.sheetName == "Push 1" })
+        #expect(push1.isRestDay == false)
+        #expect(push1.exercises.count == 9)
+        let push1Strength = push1.exercises.dropLast()
+        #expect(push1Strength.allSatisfy { $0.kind == .strength })
+        let push1Last = try #require(push1.exercises.last)
+        #expect(push1Last.kind == .cardio)
+        #expect(push1Last.name == "Cardio")
+
+        // "Cardio 1": a whole cardio day — not a rest day despite having no strength rows.
+        let cardio1 = try #require(cycle.first { $0.sheetName == "Cardio 1" })
+        #expect(cardio1.isRestDay == false)
+        #expect(cardio1.exercises.count == 1)
+        #expect(cardio1.exercises[0].kind == .cardio)
+        #expect(cardio1.exercises[0].name == "Cardio")
+
+        // "Rest 1": genuinely empty, still a rest day.
+        let rest1 = try #require(cycle.first { $0.sheetName == "Rest 1" })
+        #expect(rest1.isRestDay == true)
+    }
+
+    @Test @MainActor func importsSetBuddy4Fixture_cardioKindOnPersistedTemplates() throws {
+        let bundle = Bundle(for: SetBuddy4FixtureToken.self)
+        guard let url = bundle.url(forResource: "Set Buddy-4", withExtension: "xlsx") else {
+            Issue.record("Add Fixtures/Set Buddy-4.xlsx to the Set BuddyTests folder (synced into the test bundle).")
+            return
+        }
+        let data = try Data(contentsOf: url)
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+
+        try ProgramXlsxImporter.importReplacingStore(
+            xlsx: data,
+            programName: "Cardio Import",
+            startDate: CalendarDate(year: 2026, month: 1, day: 1),
+            modelContext: context,
+            horizonDays: 12
+        )
+
+        let program = try #require(try ProgramRepository(modelContext: context).activeProgram())
+        let push1 = try #require(program.workouts.first { $0.name == "Push 1" })
+        let sorted = push1.exercises.sorted { $0.sortOrder < $1.sortOrder }
+        #expect(sorted.dropLast().allSatisfy { $0.kind == .strength })
+        #expect(sorted.last?.kind == .cardio)
+        #expect(sorted.last?.name == "Cardio")
+
+        let cardio1 = try #require(program.workouts.first { $0.name == "Cardio 1" })
+        #expect(cardio1.exercises.allSatisfy { $0.kind == .cardio })
     }
 }

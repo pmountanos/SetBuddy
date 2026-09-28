@@ -80,7 +80,8 @@ enum ProgramXlsxImporter {
                     sortOrder: index,
                     setCount: ProgramXlsxParser.defaultSetCountPerExercise,
                     note: ex.note,
-                    repsArePerSide: ex.repsArePerSide
+                    repsArePerSide: ex.repsArePerSide,
+                    kind: ex.kind
                 )
                 pe.workout = w
                 w.exercises.append(pe)
