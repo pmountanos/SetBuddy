@@ -25,3 +25,9 @@ export function openTestDb(path = ':memory:', options: { readonly?: boolean } = 
 }
 
 export const newId = (): string => randomUUID();
+
+/** A fixed "today" and a ticking clock, so tests don't depend on when they run. */
+export function testEnv(today = { year: 2026, month: 1, day: 1 }) {
+  let clock = Date.UTC(2026, 0, 1, 12);
+  return { newId, now: () => (clock += 1000), today: () => today };
+}
