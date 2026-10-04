@@ -11,6 +11,6 @@ sealed class TodayScheduleStatus {
     /** Same scheduled workout as [WorkoutDay], but an incomplete session exists for today (user can continue logging). */
     data class WorkoutInProgress(val workoutId: Uuid, val title: String) : TodayScheduleStatus()
 
-    /** Scheduled workout for today is already finished; hide the Start action. */
-    data class WorkoutAlreadyFinished(val title: String) : TodayScheduleStatus()
+    /** Scheduled workout for today is already finished; offer Reopen instead of Start. */
+    data class WorkoutAlreadyFinished(val workoutId: Uuid, val title: String) : TodayScheduleStatus()
 }

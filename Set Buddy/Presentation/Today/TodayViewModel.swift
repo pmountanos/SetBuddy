@@ -52,7 +52,7 @@ final class TodayViewModel {
                 let today = CalendarDate(from: dateProvider.now, calendar: calendar)
                 let sessionRepo = WorkoutSessionRepository(modelContext: modelContext)
                 if try sessionRepo.hasCompletedSession(templateId: workoutId, day: today) {
-                    resolved = .workoutAlreadyFinished(title: title)
+                    resolved = .workoutAlreadyFinished(workoutId: workoutId, title: title)
                 } else if try sessionRepo.activeSession(templateId: workoutId, day: today) != nil {
                     resolved = .workoutInProgress(workoutId: workoutId, title: title)
                 }
@@ -84,6 +84,20 @@ final class TodayViewModel {
         }
     }
 
+    /// Puts today's finished session back in progress (it leaves History until finished again).
+    /// Returns false if the reopen failed, so the caller doesn't navigate to a fresh empty session.
+    func reopenFinishedWorkout(workoutId: UUID) -> Bool {
+        let today = CalendarDate(from: dateProvider.now, calendar: Calendar.current)
+        do {
+            try WorkoutSessionRepository(modelContext: modelContext).reopenCompletedSession(templateId: workoutId, day: today)
+            refresh()
+            return true
+        } catch {
+            loadError = error.localizedDescription
+            return false
+        }
+    }
+
     var headline: String {
         guard let status else { return "Loading…" }
         switch status {
@@ -92,7 +106,7 @@ final class TodayViewModel {
         case .restDay: return "Rest day"
         case .workoutDay(_, let title): return title
         case .workoutInProgress(_, let title): return title
-        case .workoutAlreadyFinished(let title): return title
+        case .workoutAlreadyFinished(_, let title): return title
         }
     }
 
@@ -104,7 +118,7 @@ final class TodayViewModel {
         case .restDay: return "Recovery is part of training."
         case .workoutDay: return "Start below when you’re ready to log sets."
         case .workoutInProgress: return "You have a session in progress. Continue on the Workout tab or below."
-        case .workoutAlreadyFinished: return "You’ve already logged this session today. It stays in History."
+        case .workoutAlreadyFinished: return "You’ve already logged this session today. Reopen it if you finished by mistake."
         }
     }
 

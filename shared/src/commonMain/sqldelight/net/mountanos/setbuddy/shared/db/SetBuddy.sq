@@ -169,6 +169,10 @@ SELECT * FROM WorkoutSession WHERE id = ?;
 completeSession:
 UPDATE WorkoutSession SET isComplete = 1, completedAt = ?, workoutTitleSnapshot = ? WHERE id = ?;
 
+reopenSessionForDay:
+UPDATE WorkoutSession SET isComplete = 0, completedAt = NULL
+WHERE workoutTemplateId = ? AND scheduleYear = ? AND scheduleMonth = ? AND scheduleDay = ? AND isComplete = 1;
+
 updateSessionNote:
 UPDATE WorkoutSession SET sessionNote = ? WHERE id = ?;
 

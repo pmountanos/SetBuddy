@@ -762,6 +762,41 @@ struct Set_BuddyTests {
         #expect(session.loggedSets.first?.setIndex == 0)
     }
 
+    @Test func reopenCompletedSessionRestoresActiveSessionWithEnteredSets() throws {
+        let store = try Self.makeInMemoryStore()
+        let context = store.context
+        let program = PersistedProgram(name: "P")
+        let workout = PersistedWorkout(name: "Day A")
+        workout.program = program
+        program.workouts.append(workout)
+        let exercise = PersistedExercise(name: "Bench", sortOrder: 0, setCount: 2)
+        exercise.workout = workout
+        workout.exercises.append(exercise)
+        context.insert(program)
+        try context.save()
+
+        let day = CalendarDate(from: Date(), calendar: .current)
+        let repo = WorkoutSessionRepository(modelContext: context)
+        let session = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        try repo.updateLoggedSet(session: session, exerciseId: exercise.id, setIndex: 0, weight: 100, reps: 5)
+        try repo.completeSession(session, workoutTitle: "Day A")
+        #expect(try repo.hasCompletedSession(templateId: workout.id, day: day) == true)
+
+        try repo.reopenCompletedSession(templateId: workout.id, day: day)
+        #expect(try repo.hasCompletedSession(templateId: workout.id, day: day) == false)
+        #expect(session.isComplete == false)
+        #expect(session.completedAt == nil)
+
+        // Same session comes back (no duplicate), entered set kept, dropped set re-created.
+        let reopened = try repo.getOrCreateActiveSession(templateId: workout.id, day: day, workout: workout)
+        #expect(reopened.id == session.id)
+        #expect(reopened.loggedSets.count == 2)
+        let first = try #require(reopened.loggedSets.first { $0.setIndex == 0 })
+        #expect(first.weight == 100)
+        #expect(first.reps == 5)
+        #expect(first.userEditedValues == true)
+    }
+
     // MARK: - ProgramRepository exercise editing
 
     @Test func setExerciseNoteTrimsAndNilsEmptyText() throws {

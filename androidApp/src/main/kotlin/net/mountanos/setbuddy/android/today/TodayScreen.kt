@@ -8,6 +8,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,7 +56,7 @@ fun TodayScreen(
             when (base) {
                 is TodayScheduleStatus.WorkoutDay -> {
                     if (sessionRepository.hasCompletedSession(base.workoutId, today)) {
-                        TodayScheduleStatus.WorkoutAlreadyFinished(base.title)
+                        TodayScheduleStatus.WorkoutAlreadyFinished(base.workoutId, base.title)
                     } else if (sessionRepository.activeSession(base.workoutId, today) != null) {
                         TodayScheduleStatus.WorkoutInProgress(base.workoutId, base.title)
                     } else {
@@ -81,6 +82,14 @@ fun TodayScreen(
             is TodayScheduleStatus.WorkoutAlreadyFinished -> {
                 Text(status.title)
                 Text("Finished for today ✓")
+                OutlinedButton(onClick = {
+                    sessionRepository.reopenCompletedSession(status.workoutId, today)
+                    notificationScheduler.requestReschedule()
+                    refreshKey++
+                    onOpenWorkout(status.workoutId.toString(), today)
+                }) {
+                    Text("Reopen")
+                }
             }
             is TodayScheduleStatus.WorkoutDay -> {
                 Text(status.title)

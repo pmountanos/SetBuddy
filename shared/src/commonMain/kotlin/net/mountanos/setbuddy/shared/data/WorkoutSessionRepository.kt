@@ -90,6 +90,11 @@ class WorkoutSessionRepository(private val db: SetBuddyDatabase) {
         }
     }
 
+    /** Undoes [completeSession] for the given day (e.g. Finish tapped by accident); rows dropped at completion are re-created by [getOrCreateActiveSession]. */
+    fun reopenCompletedSession(templateId: Uuid, day: CalendarDate) {
+        q.reopenSessionForDay(templateId.toString(), day.year.toLong(), day.month.toLong(), day.day.toLong())
+    }
+
     fun setSessionNote(sessionId: Uuid, note: String) {
         q.updateSessionNote(note, sessionId.toString())
     }

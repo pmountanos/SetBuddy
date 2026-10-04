@@ -82,6 +82,19 @@ private struct TodayStatusContent: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("todayContinueWorkoutButton")
                 }
+                if case .workoutAlreadyFinished(let workoutId, let title) = viewModel.status {
+                    Button {
+                        if viewModel.reopenFinishedWorkout(workoutId: workoutId) {
+                            router.openWorkoutLogging(workoutId: workoutId)
+                        }
+                    } label: {
+                        Text("Reopen \(title)")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("todayReopenWorkoutButton")
+                }
                 if showChangePlanMenu {
                     Menu {
                         Button("Rest") {

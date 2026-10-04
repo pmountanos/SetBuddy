@@ -119,6 +119,26 @@ struct WorkoutSessionRepository {
         try modelContext.save()
     }
 
+    /// Undoes `completeSession` for the given day (e.g. Finish tapped by accident): the session becomes the active
+    /// one again with its entered sets intact. Rows dropped at completion are re-created by `getOrCreateActiveSession`.
+    func reopenCompletedSession(templateId: UUID, day: CalendarDate) throws {
+        let year = day.year, month = day.month, dayNum = day.day
+        let match = try modelContext.first(
+            PersistedWorkoutSession.self,
+            matching: #Predicate<PersistedWorkoutSession> { session in
+                session.workoutTemplateId == templateId
+                    && session.scheduleYear == year
+                    && session.scheduleMonth == month
+                    && session.scheduleDay == dayNum
+                    && session.isComplete
+            }
+        )
+        guard let match else { return }
+        match.isComplete = false
+        match.completedAt = nil
+        try modelContext.save()
+    }
+
     func setSessionNote(_ session: PersistedWorkoutSession, note: String) throws {
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         session.sessionNote = trimmed.isEmpty ? nil : trimmed
