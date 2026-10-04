@@ -9,7 +9,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "net.mountanos.Set-Buddy",
-      "buildNumber": "15"
+      "buildNumber": "15",
+      "appleTeamId": "XXXXXXXXXX"
     },
     "android": {
       "adaptiveIcon": {
