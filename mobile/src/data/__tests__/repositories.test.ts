@@ -201,6 +201,16 @@ describe('logging a session', () => {
     expect(reference.has(2)).toBe(false);
   });
 
+  it('does not save a set that was entered and then cleared', () => {
+    const t = started();
+    const session = t.sessions.getOrCreateActiveSession(t.workout.id, t.day);
+    t.sessions.updateLoggedSet(session.id, t.exerciseId, 0, 100, 5);
+    t.sessions.updateLoggedSet(session.id, t.exerciseId, 1, 60, 8);
+    t.sessions.updateLoggedSet(session.id, t.exerciseId, 1, 0, 0);
+    t.sessions.completeSession(session.id, t.workout.name);
+    expect(t.history.sessionDetail(session.id)!.exercises[0].sets.map((s) => s.setNumber)).toEqual([1]);
+  });
+
   it('uses the most recent completed session as the reference', () => {
     const t = started();
     for (const [offset, weight] of [[0, 100], [1, 110]] as const) {

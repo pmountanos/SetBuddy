@@ -113,10 +113,17 @@ export class WorkoutSessionRepository {
     );
   }
 
-  /** Drops rows the user never entered, snapshots the workout title, and marks the session complete. */
+  /**
+   * Drops rows the user never entered — or entered and then cleared back to nothing — snapshots the workout
+   * title, and marks the session complete.
+   */
   completeSession(sessionId: string, workoutTitle: string): void {
     this.db.transaction(() => {
-      this.db.run('DELETE FROM LoggedSet WHERE sessionId = ? AND userEditedValues = 0', [sessionId]);
+      this.db.run(
+        `DELETE FROM LoggedSet WHERE sessionId = ?
+         AND (userEditedValues = 0 OR (weight = 0 AND reps = 0 AND cardioMinutes = 0 AND maxHeartRate = 0))`,
+        [sessionId],
+      );
       this.db.run('UPDATE WorkoutSession SET isComplete = 1, completedAt = ?, workoutTitleSnapshot = ? WHERE id = ?', [this.env.now(), workoutTitle, sessionId]);
     });
   }

@@ -5,7 +5,7 @@
     "version": "1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "net.mountanos.Set-Buddy",
@@ -27,7 +27,11 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-status-bar"
-    ]
+      "expo-status-bar",
+      "expo-router",
+      "expo-sharing",
+      "expo-font"
+    ],
+    "scheme": "setbuddy"
   }
 }
