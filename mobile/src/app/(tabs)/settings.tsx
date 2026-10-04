@@ -1,14 +1,17 @@
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Constants from 'expo-constants';
 import { useState } from 'react';
-import { Platform, StyleSheet, Text } from 'react-native';
+import { Linking, Platform, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { historyCsv, historyXlsx } from '@/export/historyExport';
 import { programCsv, programXlsx } from '@/export/programExport';
+import type { ReminderPrefs } from '@/notifications/reminderPlan';
+import { loadReminderPrefs, requestReminderPermission, rescheduleReminders, saveReminderPrefs } from '@/notifications/reminders';
 import { pickProgramWorkbook, type PickedWorkbook, shareExport } from '@/settings/importExport';
 import { SCHEDULE_PREVIEW_CHOICES, schedulePreviewDays, setSchedulePreviewDays } from '@/settings/preferences';
 import { useApp } from '@/state/AppContext';
 import { ImportStaging } from '@/ui/ImportStaging';
-import { Body, Button, Card, Screen, SectionTitle, Segmented } from '@/ui/kit';
+import { Body, Button, Card, Divider, Row, Screen, SectionTitle, Segmented } from '@/ui/kit';
 import { useTheme } from '@/ui/theme';
 
 function versionLabel(): string {
@@ -24,6 +27,27 @@ export default function SettingsScreen() {
   const [staged, setStaged] = useState<PickedWorkbook | null>(null);
   const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reminders, setReminders] = useState(loadReminderPrefs);
+  const [reminderBlocked, setReminderBlocked] = useState(false);
+
+  const applyReminders = (prefs: ReminderPrefs) => {
+    saveReminderPrefs(prefs);
+    setReminders(prefs);
+    void rescheduleReminders(services, { force: true }).catch(() => {});
+  };
+  const toggleReminders = async (enabled: boolean) => {
+    if (enabled && !(await requestReminderPermission())) {
+      // Permission was refused; only the system Settings app can change that now.
+      setReminderBlocked(true);
+      return;
+    }
+    setReminderBlocked(false);
+    applyReminders({ ...reminders, enabled });
+  };
+  const reminderTime = new Date(2000, 0, 1, reminders.hour, reminders.minute);
+  const setReminderTime = (date: Date | undefined) => {
+    if (date) applyReminders({ ...reminders, hour: date.getHours(), minute: date.getMinutes() });
+  };
 
   const run = async (task: () => Promise<void>) => {
     setBusy(true);
@@ -67,6 +91,54 @@ export default function SettingsScreen() {
         </Body>
       </Card>
 
+      <SectionTitle>Notifications</SectionTitle>
+      <Card style={styles.padded}>
+        <View style={styles.switchRow}>
+          <Body>Daily plan reminder</Body>
+          <Switch accessibilityLabel="Daily plan reminder" testID="settingsReminderSwitch" value={reminders.enabled} onValueChange={toggleReminders} />
+        </View>
+        {reminders.enabled ? (
+          <>
+            <Divider />
+            {Platform.OS === 'ios' ? (
+              <View style={styles.switchRow}>
+                <Body>Reminder time</Body>
+                <DateTimePicker mode="time" display="compact" value={reminderTime} onChange={(_, date) => setReminderTime(date)} />
+              </View>
+            ) : (
+              <Row
+                testID="settingsReminderTime"
+                trailing={reminderTime.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                onPress={() => DateTimePickerAndroid.open({ mode: 'time', value: reminderTime, onChange: (_, date) => setReminderTime(date) })}>
+                <Body>Reminder time</Body>
+              </Row>
+            )}
+          </>
+        ) : null}
+        <Body secondary style={styles.small}>
+          One notification a day telling you whether it’s a workout or a rest day.
+        </Body>
+        {Platform.OS === 'android' && reminders.enabled ? (
+          <>
+            <Body secondary style={styles.small}>
+              Android may deliver the reminder up to an hour late unless Set Buddy is allowed under “Alarms & reminders”.
+            </Body>
+            <Button
+              label="Open Alarms & reminders"
+              kind="plain"
+              compact
+              onPress={() => void Linking.sendIntent('android.settings.REQUEST_SCHEDULE_EXACT_ALARM').catch(() => Linking.openSettings())}
+            />
+          </>
+        ) : null}
+        {reminderBlocked ? (
+          <>
+            <Text style={[styles.small, { color: theme.danger }]}>Notifications are turned off for Set Buddy. Allow them in system Settings, then switch this on.</Text>
+            <Button label="Open system Settings" kind="plain" compact onPress={() => void Linking.openSettings()} />
+          </>
+        ) : null}
+      </Card>
+
       <SectionTitle>Program</SectionTitle>
       <Card style={styles.padded}>
         <Body>Upcoming schedule length</Body>
@@ -108,6 +180,7 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   padded: { paddingVertical: 12, gap: 10 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   small: { fontSize: 13, lineHeight: 18 },
   message: { fontSize: 15, lineHeight: 21, textAlign: 'center', marginTop: 4 },
   version: { fontSize: 13, textAlign: 'center', marginTop: 8 },

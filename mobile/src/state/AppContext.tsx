@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState as NativeAppState } from 'react-native';
 
 import { type AppDatabase, appEnv, type LegacyImport, openAppDatabase } from '@/data/appDatabase';
 import type { Db } from '@/data/db';
@@ -8,6 +9,7 @@ import { ProgramOutlineRepository } from '@/data/outlineRepository';
 import { ProgramRepository } from '@/data/programRepository';
 import { WorkoutSessionRepository } from '@/data/sessionRepository';
 import type { CalendarDate } from '@/domain/calendarDate';
+import { migrateLegacyReminderPrefs, rescheduleReminders } from '@/notifications/reminders';
 
 export interface Services {
   db: Db;
@@ -56,7 +58,10 @@ export function useAppServices(): AppLoadState {
   const [state, setState] = useState<AppLoadState>({ status: 'loading' });
   useEffect(() => {
     openAppDatabase()
-      .then((database) => setState({ status: 'ready', services: buildServices(database) }))
+      .then((database) => {
+        migrateLegacyReminderPrefs(database.legacyImport);
+        setState({ status: 'ready', services: buildServices(database) });
+      })
       .catch((error: unknown) => setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) }));
   }, []);
   return state;
@@ -66,6 +71,19 @@ export function AppProvider({ services, children }: { services: Services; childr
   const [version, setVersion] = useState(0);
   const [openWorkout, setOpenWorkout] = useState<OpenWorkout | null>(null);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+
+  // Keep the daily reminders in step with the data: after any change (debounced, since edits come in bursts),
+  // and when the app comes back to the foreground, which also rolls the reminder window forward.
+  useEffect(() => {
+    const timer = setTimeout(() => void rescheduleReminders(services).catch(() => {}), 1500);
+    return () => clearTimeout(timer);
+  }, [services, version]);
+  useEffect(() => {
+    const subscription = NativeAppState.addEventListener('change', (state) => {
+      if (state === 'active') void rescheduleReminders(services, { force: true }).catch(() => {});
+    });
+    return () => subscription.remove();
+  }, [services]);
   const value = useMemo(() => ({ services, version, refresh, openWorkout, setOpenWorkout }), [services, version, refresh, openWorkout]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
