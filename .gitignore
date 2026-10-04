@@ -13,6 +13,9 @@ DistributionSummary.plist
 Packaging.log
 ExportOptions.plist
 
+# VS Code workspace settings (machine-specific toolchain paths)
+.vscode/
+
 # SwiftPM
 .swiftpm/
 .build/
