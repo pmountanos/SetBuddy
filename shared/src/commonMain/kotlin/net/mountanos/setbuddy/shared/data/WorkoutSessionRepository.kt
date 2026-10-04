@@ -83,6 +83,14 @@ class WorkoutSessionRepository(private val db: SetBuddyDatabase) {
         q.updateLoggedSet(weight, reps.toLong(), sessionId.toString(), exerciseId.toString(), setIndex.toLong())
     }
 
+    /** Cardio counterpart of [updateLoggedSet] — records minutes/max heart rate instead of weight/reps. */
+    fun updateCardioLoggedSet(sessionId: Uuid, exerciseId: Uuid, setIndex: Int, minutes: Double, maxHeartRate: Int) {
+        q.updateCardioLoggedSet(
+            maxOf(0.0, minutes), maxOf(0, maxHeartRate).toLong(),
+            sessionId.toString(), exerciseId.toString(), setIndex.toLong(),
+        )
+    }
+
     fun completeSession(sessionId: Uuid, workoutTitle: String) {
         db.transaction {
             q.deleteNonEnteredLoggedSets(sessionId.toString())

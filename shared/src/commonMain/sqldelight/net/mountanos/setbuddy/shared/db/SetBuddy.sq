@@ -8,6 +8,10 @@ CREATE TABLE Workout (
     id TEXT NOT NULL PRIMARY KEY,
     programId TEXT NOT NULL,
     name TEXT NOT NULL,
+    -- Display/picker order: first-encountered position in the imported spreadsheet's cycle, or append order for
+    -- workouts added in-app. Ties (rows from before this column existed are all 0) fall back to
+    -- WorkoutTemplateDisplaySort's naming heuristic.
+    sortOrder INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (programId) REFERENCES Program(id) ON DELETE CASCADE
 );
 
@@ -34,6 +38,8 @@ CREATE TABLE Exercise (
     setCount INTEGER NOT NULL,
     note TEXT,
     repsArePerSide INTEGER NOT NULL DEFAULT 0,
+    -- 'strength' (weight/reps) or 'cardio' (minutes/max heart rate) — see ExerciseKind.
+    kind TEXT NOT NULL DEFAULT 'strength',
     FOREIGN KEY (workoutId) REFERENCES Workout(id) ON DELETE CASCADE
 );
 
@@ -66,6 +72,9 @@ CREATE TABLE LoggedSet (
     seededFromCarryover INTEGER NOT NULL DEFAULT 0,
     userEditedValues INTEGER NOT NULL DEFAULT 0,
     repsArePerSide INTEGER NOT NULL DEFAULT 0,
+    -- Cardio-exercise values (unused/zero for strength sets).
+    cardioMinutes REAL NOT NULL DEFAULT 0,
+    maxHeartRate INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (sessionId) REFERENCES WorkoutSession(id) ON DELETE CASCADE
 );
 
@@ -91,7 +100,10 @@ SELECT IFNULL(MAX(createdAtRowOrder), 0) + 1 FROM Program;
 -- Workout --------------------------------------------------------------
 
 insertWorkout:
-INSERT INTO Workout(id, programId, name) VALUES (?, ?, ?);
+INSERT INTO Workout(id, programId, name, sortOrder) VALUES (?, ?, ?, ?);
+
+nextWorkoutSortOrder:
+SELECT IFNULL(MAX(sortOrder), -1) + 1 FROM Workout WHERE programId = ?;
 
 selectWorkoutsForProgram:
 SELECT * FROM Workout WHERE programId = ?;
@@ -127,8 +139,8 @@ LIMIT ?;
 -- Exercise ---------------------------------------------------------------
 
 insertExercise:
-INSERT INTO Exercise(id, workoutId, name, sortOrder, setCount, note, repsArePerSide)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO Exercise(id, workoutId, name, sortOrder, setCount, note, repsArePerSide, kind)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectExercisesForWorkout:
 SELECT * FROM Exercise WHERE workoutId = ? ORDER BY sortOrder;
@@ -147,6 +159,9 @@ UPDATE Exercise SET setCount = ? WHERE id = ?;
 
 updateExerciseRepsPerSide:
 UPDATE Exercise SET repsArePerSide = ? WHERE id = ?;
+
+updateExerciseKind:
+UPDATE Exercise SET kind = ? WHERE id = ?;
 
 updateExerciseNote:
 UPDATE Exercise SET note = ? WHERE id = ?;
@@ -206,6 +221,9 @@ SELECT * FROM LoggedSet WHERE sessionId = ? ORDER BY exerciseId, setIndex;
 
 updateLoggedSet:
 UPDATE LoggedSet SET weight = ?, reps = ?, userEditedValues = 1 WHERE sessionId = ? AND exerciseId = ? AND setIndex = ?;
+
+updateCardioLoggedSet:
+UPDATE LoggedSet SET cardioMinutes = ?, maxHeartRate = ?, userEditedValues = 1 WHERE sessionId = ? AND exerciseId = ? AND setIndex = ?;
 
 deleteLoggedSetsExceedingSetCount:
 DELETE FROM LoggedSet WHERE sessionId = ? AND exerciseId = ? AND setIndex >= ?;

@@ -24,7 +24,7 @@ android {
         applicationId = "net.mountanos.setbuddy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0"
     }
 
@@ -85,4 +85,5 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.1")
 
     testImplementation(kotlin("test"))
+    testImplementation("app.cash.sqldelight:sqlite-driver:2.0.2")
 }

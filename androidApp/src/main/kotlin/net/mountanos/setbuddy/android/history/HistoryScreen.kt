@@ -24,6 +24,8 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import net.mountanos.setbuddy.android.ui.NoteEditorDialog
+import net.mountanos.setbuddy.android.ui.formatCardioMinutes
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.shared.data.HistoryRepository
 import net.mountanos.setbuddy.shared.data.HistorySessionDetail
 import net.mountanos.setbuddy.shared.data.WorkoutSessionRepository
@@ -72,15 +74,29 @@ fun HistoryScreen(historyRepository: HistoryRepository, sessionRepository: Worko
                             style = MaterialTheme.typography.bodySmall,
                         )
                         detail.exerciseGroups.forEach { group ->
+                            val isCardio = group.sets.firstOrNull()?.kind == ExerciseKind.Cardio
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(group.exerciseName, style = MaterialTheme.typography.bodyMedium)
-                                Text(formatVolume(group.volume), style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    if (isCardio) {
+                                        "${formatCardioMinutes(group.sets.sumOf { it.cardioMinutes })} min"
+                                    } else {
+                                        formatVolume(group.volume)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                             group.sets.forEach { line ->
-                                Text("  Set ${line.setIndex + 1}: ${line.weight} × ${line.reps}")
+                                Text(
+                                    if (isCardio) {
+                                        "  Set ${line.setIndex + 1}: ${formatCardioMinutes(line.cardioMinutes)} min · max HR ${line.maxHeartRate}"
+                                    } else {
+                                        "  Set ${line.setIndex + 1}: ${line.weight} × ${line.reps}"
+                                    },
+                                )
                             }
                         }
                         Text(

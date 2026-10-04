@@ -1,0 +1,7 @@
+-- v1 -> v2: cardio exercises (Exercise.kind, LoggedSet.cardioMinutes/maxHeartRate) and spreadsheet-cycle
+-- workout ordering (Workout.sortOrder). Defaults keep every existing row valid: strength, zero, and 0 (ties
+-- fall back to the naming heuristic until the next re-import).
+ALTER TABLE Workout ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE Exercise ADD COLUMN kind TEXT NOT NULL DEFAULT 'strength';
+ALTER TABLE LoggedSet ADD COLUMN cardioMinutes REAL NOT NULL DEFAULT 0;
+ALTER TABLE LoggedSet ADD COLUMN maxHeartRate INTEGER NOT NULL DEFAULT 0;

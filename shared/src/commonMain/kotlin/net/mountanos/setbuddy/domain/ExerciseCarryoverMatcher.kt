@@ -9,7 +9,12 @@ import kotlin.uuid.Uuid
 data class ImportExerciseRef(val workoutSheetName: String, val exerciseName: String)
 
 /** One exercise entry as it appears in a freshly parsed workbook day. */
-data class ImportedCycleExercise(val name: String, val note: String? = null, val repsArePerSide: Boolean = false)
+data class ImportedCycleExercise(
+    val name: String,
+    val note: String? = null,
+    val repsArePerSide: Boolean = false,
+    val kind: ExerciseKind = ExerciseKind.Strength,
+)
 
 /** One day of a freshly parsed workbook cycle. */
 data class ImportedCycleDay(
@@ -93,8 +98,10 @@ object ExerciseCarryoverMatcher {
             suggestions.add(Suggestion(ref, old.id, old.name))
         }
 
-        // Present in workbook order rather than by-score.
-        val order = newRefs.withIndex().associate { (i, ref) -> ref to i }
+        // Present in workbook order rather than by-score. A workbook can repeat the same exercise name on one
+        // sheet (e.g. a copy-paste duplicate); keep the first occurrence's position, as iOS does.
+        val order = mutableMapOf<ImportExerciseRef, Int>()
+        newRefs.forEachIndexed { i, ref -> if (ref !in order) order[ref] = i }
         suggestions.sortBy { order[it.newExercise] ?: 0 }
 
         return Result(autoCarryover, suggestions)

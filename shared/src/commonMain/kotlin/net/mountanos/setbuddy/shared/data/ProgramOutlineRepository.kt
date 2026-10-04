@@ -1,8 +1,10 @@
 package net.mountanos.setbuddy.shared.data
 
 import net.mountanos.setbuddy.domain.CalendarDate
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.WorkoutTemplateDisplaySort
 import net.mountanos.setbuddy.shared.db.SetBuddyDatabase
+import net.mountanos.setbuddy.shared.db.Workout
 import kotlin.uuid.Uuid
 
 data class ProgramExerciseOutline(
@@ -12,6 +14,8 @@ data class ProgramExerciseOutline(
     val setCount: Int,
     val note: String?,
     val repsArePerSide: Boolean,
+    /** Strength (weight/reps) or cardio (minutes/max heart rate). */
+    val kind: ExerciseKind,
 )
 
 data class ProgramWorkoutOutline(val id: Uuid, val name: String, val exercises: List<ProgramExerciseOutline>)
@@ -27,7 +31,9 @@ class ProgramOutlineRepository(private val db: SetBuddyDatabase) {
     fun activeProgramOutline(): ProgramOutline? {
         val program = q.selectActiveProgram().executeAsOneOrNull() ?: return null
         val workouts = q.selectWorkoutsForProgram(program.id).executeAsList()
-            .sortedWith(compareBy(WorkoutTemplateDisplaySort.comparator) { it.name })
+            // sortOrder (import/cycle position) first; falls back to the naming heuristic on ties (e.g. every
+            // workout still at the default 0 on an install that predates the column, until it's re-imported).
+            .sortedWith(compareBy<Workout> { it.sortOrder }.thenBy(WorkoutTemplateDisplaySort.comparator) { it.name })
             .map { workout ->
                 val exercises = q.selectExercisesForWorkout(workout.id).executeAsList().map { ex ->
                     ProgramExerciseOutline(
@@ -37,6 +43,7 @@ class ProgramOutlineRepository(private val db: SetBuddyDatabase) {
                         setCount = ex.setCount.toInt(),
                         note = ex.note,
                         repsArePerSide = ex.repsArePerSide == 1L,
+                        kind = ExerciseKind.fromRaw(ex.kind),
                     )
                 }
                 ProgramWorkoutOutline(Uuid.parse(workout.id), workout.name, exercises)

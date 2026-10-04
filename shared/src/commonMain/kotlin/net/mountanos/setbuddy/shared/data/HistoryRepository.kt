@@ -1,6 +1,7 @@
 package net.mountanos.setbuddy.shared.data
 
 import net.mountanos.setbuddy.domain.CalendarDate
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.VolumeCalculator
 import net.mountanos.setbuddy.shared.db.SetBuddyDatabase
 import kotlin.uuid.Uuid
@@ -13,8 +14,19 @@ data class HistoryCompletedRow(
     val hasSessionNote: Boolean,
 )
 
-data class HistorySessionSetLine(val setIndex: Int, val weight: Double, val reps: Int, val repsArePerSide: Boolean) {
-    val volume: Double get() = VolumeCalculator.setVolume(weight, reps, repsArePerSide)
+data class HistorySessionSetLine(
+    val setIndex: Int,
+    val weight: Double,
+    val reps: Int,
+    val repsArePerSide: Boolean,
+    /** Strength (weight/reps) or cardio (minutes/max heart rate). */
+    val kind: ExerciseKind = ExerciseKind.Strength,
+    val cardioMinutes: Double = 0.0,
+    val maxHeartRate: Int = 0,
+) {
+    /** Cardio sets don't count toward weight × reps volume. */
+    val volume: Double
+        get() = if (kind == ExerciseKind.Cardio) 0.0 else VolumeCalculator.setVolume(weight, reps, repsArePerSide)
 }
 
 data class HistorySessionExerciseGroup(
@@ -58,18 +70,23 @@ class HistoryRepository(private val db: SetBuddyDatabase) {
     fun sessionDetail(sessionId: Uuid): HistorySessionDetail? {
         val session = q.selectSessionById(sessionId.toString()).executeAsOneOrNull() ?: return null
         val loggedSets = q.selectLoggedSetsForSession(sessionId.toString()).executeAsList()
-        val exerciseNames = mutableMapOf<String, String>()
-        fun name(exerciseId: String): String =
-            exerciseNames.getOrPut(exerciseId) {
-                q.selectExerciseById(exerciseId).executeAsOneOrNull()?.name ?: "Exercise"
-            }
+        // Name/kind come from the exercise as it exists now; one deleted since (e.g. a re-import that didn't
+        // carry it over) falls back to "Exercise" / strength, as on iOS.
+        val exercises = loggedSets.map { it.exerciseId }.distinct()
+            .associateWith { q.selectExerciseById(it).executeAsOneOrNull() }
+        fun name(exerciseId: String): String = exercises[exerciseId]?.name ?: "Exercise"
+        fun kind(exerciseId: String): ExerciseKind = ExerciseKind.fromRaw(exercises[exerciseId]?.kind)
 
         val groups = loggedSets.groupBy { it.exerciseId }.map { (exerciseId, sets) ->
+            val exerciseKind = kind(exerciseId)
             HistorySessionExerciseGroup(
                 exerciseId = Uuid.parse(exerciseId),
                 exerciseName = name(exerciseId),
                 sets = sets.sortedBy { it.setIndex }.map {
-                    HistorySessionSetLine(it.setIndex.toInt(), it.weight, it.reps.toInt(), it.repsArePerSide == 1L)
+                    HistorySessionSetLine(
+                        it.setIndex.toInt(), it.weight, it.reps.toInt(), it.repsArePerSide == 1L,
+                        exerciseKind, it.cardioMinutes, it.maxHeartRate.toInt(),
+                    )
                 },
             )
         }

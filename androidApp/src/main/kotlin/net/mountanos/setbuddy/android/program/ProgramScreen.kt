@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import net.mountanos.setbuddy.android.notifications.DailyNotificationScheduler
 import net.mountanos.setbuddy.android.settings.ProgramSchedulePreviewDaysSetting
 import net.mountanos.setbuddy.android.ui.NoteEditorDialog
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.ScheduledDayKind
 import net.mountanos.setbuddy.shared.data.ProgramOutlineRepository
 import net.mountanos.setbuddy.shared.data.ProgramRepository
@@ -168,7 +169,13 @@ fun ProgramScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     TextButton(onClick = { editingExerciseNote = exercise.id to (exercise.note ?: "") }) {
-                        Text("${exercise.name} × ${exercise.setCount}" + if (exercise.repsArePerSide) " · Per side ×2" else "")
+                        Text(
+                            "${exercise.name} × ${exercise.setCount}" + when {
+                                exercise.kind == ExerciseKind.Cardio -> " · Cardio"
+                                exercise.repsArePerSide -> " · Per side ×2"
+                                else -> ""
+                            },
+                        )
                     }
                     if (!exercise.note.isNullOrBlank()) {
                         Icon(Icons.Filled.Note, contentDescription = "Has note", modifier = Modifier.padding(top = 12.dp))

@@ -10,6 +10,7 @@ object HistorySpreadsheetExport {
     private val headers = listOf(
         "completed_at", "workout", "schedule_day", "total_volume", "exercise",
         "set_number", "weight_kg", "reps", "per_side", "set_volume", "session_note",
+        "type", "cardio_minutes", "max_heart_rate",
     )
 
     fun buildXlsx(sessions: List<HistorySessionDetail>): ByteArray {
@@ -20,6 +21,7 @@ object HistorySpreadsheetExport {
                 listOf(
                     Cell.Text(""), Cell.Text(""), Cell.Text(""), Cell.Number(0.0), Cell.Text(""),
                     Cell.Number(0.0), Cell.Number(0.0), Cell.Number(0.0), Cell.Text("no"), Cell.Number(0.0), Cell.Text(""),
+                    Cell.Text(""), Cell.Number(0.0), Cell.Number(0.0),
                 ),
             )
         } else {
@@ -60,6 +62,8 @@ object HistorySpreadsheetExport {
                         Cell.Number((line.setIndex + 1).toDouble()), Cell.Number(line.weight),
                         Cell.Number(line.reps.toDouble()), Cell.Text(if (line.repsArePerSide) "yes" else "no"),
                         Cell.Number(line.volume), Cell.Text(note),
+                        Cell.Text(line.kind.rawValue), Cell.Number(line.cardioMinutes),
+                        Cell.Number(line.maxHeartRate.toDouble()),
                     ),
                 )
             }
@@ -70,6 +74,7 @@ object HistorySpreadsheetExport {
                 Cell.Number(session.totalVolume), Cell.Text("workout_total"),
                 Cell.Text(""), Cell.Text(""), Cell.Text(""), Cell.Text(""),
                 Cell.Number(setVolumeSum), Cell.Text(note),
+                Cell.Text(""), Cell.Text(""), Cell.Text(""),
             ),
         )
     }
@@ -88,6 +93,7 @@ object HistorySpreadsheetExport {
                         session.totalVolume.toString(), SpreadsheetFormatting.csvEscape(group.exerciseName),
                         (line.setIndex + 1).toString(), line.weight.toString(), line.reps.toString(),
                         if (line.repsArePerSide) "yes" else "no", line.volume.toString(), note,
+                        line.kind.rawValue, line.cardioMinutes.toString(), line.maxHeartRate.toString(),
                     ).joinToString(","),
                 )
             }
@@ -96,7 +102,7 @@ object HistorySpreadsheetExport {
             listOf(
                 completedAt, SpreadsheetFormatting.csvEscape(session.title), scheduleDay,
                 session.totalVolume.toString(), "workout_total", "", "", "", "",
-                setVolumeSum.toString(), note,
+                setVolumeSum.toString(), note, "", "", "",
             ).joinToString(","),
         )
     }

@@ -3,6 +3,7 @@ package net.mountanos.setbuddy.shared.data
 import kotlinx.datetime.Clock
 import net.mountanos.setbuddy.domain.CalendarDate
 import net.mountanos.setbuddy.domain.ExerciseCarryoverMatcher
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.ProgramCalendarSchedule
 import net.mountanos.setbuddy.domain.ScheduledDayKind
 import net.mountanos.setbuddy.shared.db.Program
@@ -85,8 +86,8 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
         db.transaction {
             val nextOrder = q.nextProgramRowOrder().executeAsOne()
             q.insertProgram(programId, programName, nextOrder)
-            q.insertWorkout(workoutId, programId, "Workout 1")
-            q.insertExercise(exerciseId, workoutId, "Exercise 1", 0, defaultSetCount.toLong(), null, 0)
+            q.insertWorkout(workoutId, programId, "Workout 1", 0)
+            q.insertExercise(exerciseId, workoutId, "Exercise 1", 0, defaultSetCount.toLong(), null, 0, ExerciseKind.Strength.rawValue)
         }
         ensureForwardScheduleFilled()
         return q.selectActiveProgram().executeAsOne()
@@ -118,32 +119,65 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
         applyScheduleDay(program.id, date, value)
     }
 
-    /** Assigns [value] to [start] and shifts every day after it forward by one, matching the iOS "insert" semantics used when today's plan changes retroactively. */
-    fun setScheduleDayShiftingFollowing(from: CalendarDate, value: SchedulePickerValue, cascadeDays: Int = forwardScheduleHorizonDays) {
+    /**
+     * Assigns [value] to [from] and shifts every day after it forward by one, matching the iOS "insert" semantics
+     * used when today's plan changes retroactively.
+     *
+     * @param skipIfUnchanged when `true`, does nothing if [from] already equals [value] (picker no-op). **Add a
+     *        rest day** passes `false` so inserting rest still pushes the schedule even when that day was already rest.
+     * @param preferNearestRecurrence when `true` and [value] already recurs within the next
+     *        [NEAR_DUPLICATE_SEARCH_WINDOW] days, rotates just that bounded window ([from] through the recurrence)
+     *        instead of shifting the entire remaining horizon. Pass `false` for an unconditional insert.
+     */
+    fun setScheduleDayShiftingFollowing(
+        from: CalendarDate,
+        value: SchedulePickerValue,
+        cascadeDays: Int = forwardScheduleHorizonDays,
+        skipIfUnchanged: Boolean = true,
+        preferNearestRecurrence: Boolean = true,
+    ) {
         val program = activeProgram() ?: return
         val existing = q.selectScheduleForProgram(program.id).executeAsList()
             .associateBy { CalendarDate(it.year.toInt(), it.month.toInt(), it.day.toInt()) }
 
+        // Days with no row yet (past the stored horizon) count as rest.
+        val oldValues = (0..cascadeDays).map { offset ->
+            val entry = existing[from.addingDays(offset)]
+            val workoutId = entry?.workoutId
+            if (entry == null || entry.isRestDay == 1L || workoutId == null) {
+                SchedulePickerValue.Rest
+            } else {
+                SchedulePickerValue.AssignedWorkout(Uuid.parse(workoutId))
+            }
+        }
+        if (skipIfUnchanged && oldValues[0] == value) return
+
+        // If `value` already recurs soon (e.g. pulling a workout that's due again in a few days to today, rather
+        // than genuinely inserting something new), rotate just that bounded window instead of shifting the entire
+        // rest of the horizon. Otherwise that recurrence shows up again a few days later as an apparent
+        // duplicate/out-of-order repeat, and every day after it runs one calendar day later than the
+        // spreadsheet's actual cycle from then on — compounding with every such edit. Bounded to a search window
+        // so a coincidental match far in the future still falls through to a plain insert.
+        val recurrence = if (preferNearestRecurrence) {
+            (1..minOf(NEAR_DUPLICATE_SEARCH_WINDOW, cascadeDays)).firstOrNull { oldValues[it] == value }
+        } else {
+            null
+        }
+
         db.transaction {
             applyScheduleDay(program.id, from, value)
-            // Shift every subsequent day's assignment forward by one (day N's old value moves to day N+1).
-            var previous: SchedulePickerValue = value
-            for (offset in 1..cascadeDays) {
-                val date = from.addingDays(offset)
-                val entry = existing[date]
-                val current = when {
-                    entry == null -> SchedulePickerValue.Rest
-                    entry.isRestDay == 1L -> SchedulePickerValue.Rest
-                    else -> SchedulePickerValue.AssignedWorkout(Uuid.parse(entry.workoutId!!))
-                }
-                applyScheduleDay(program.id, date, previous)
-                previous = current
+            // Day N's old value moves to day N+1, through the recurrence if there is one, else the whole horizon.
+            for (offset in 1..(recurrence ?: cascadeDays)) {
+                applyScheduleDay(program.id, from.addingDays(offset), oldValues[offset - 1])
             }
         }
     }
 
+    /** Always inserts a genuinely new rest day — never swaps to a rest day that's already coming up soon, since "add a rest day" specifically means one more day off, not a rearrangement. */
     fun insertRestDayShiftingFollowing(start: CalendarDate, cascadeDays: Int = forwardScheduleHorizonDays) {
-        setScheduleDayShiftingFollowing(start, SchedulePickerValue.Rest, cascadeDays)
+        setScheduleDayShiftingFollowing(
+            start, SchedulePickerValue.Rest, cascadeDays, skipIfUnchanged = false, preferNearestRecurrence = false,
+        )
     }
 
     private fun applyScheduleDay(programId: String, date: CalendarDate, value: SchedulePickerValue) {
@@ -161,7 +195,9 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
     fun addWorkout(name: String = "New workout"): Workout {
         val program = activeProgram() ?: throw IllegalStateException("No active program")
         val id = Uuid.random().toString()
-        q.insertWorkout(id, program.id, name)
+        db.transaction {
+            q.insertWorkout(id, program.id, name, q.nextWorkoutSortOrder(program.id).executeAsOne())
+        }
         return q.selectWorkoutById(id).executeAsOne()
     }
 
@@ -172,7 +208,10 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
     fun addExercise(workoutId: Uuid, name: String = "New exercise", setCount: Int = 4) {
         val existing = q.selectExercisesForWorkout(workoutId.toString()).executeAsList()
         val id = Uuid.random().toString()
-        q.insertExercise(id, workoutId.toString(), name, existing.size.toLong(), setCount.toLong(), null, 0)
+        q.insertExercise(
+            id, workoutId.toString(), name, existing.size.toLong(), setCount.toLong(), null, 0,
+            ExerciseKind.Strength.rawValue,
+        )
     }
 
     fun deleteExercise(id: Uuid) {
@@ -193,6 +232,17 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
         q.updateExerciseRepsPerSide(if (value) 1L else 0L, id.toString())
     }
 
+    /**
+     * Switching to cardio resets the set count to **1** — a cardio exercise is normally a single set (one
+     * duration/heart-rate reading), not a strength-style multi-set default. Still adjustable afterward.
+     */
+    fun setExerciseKind(id: Uuid, kind: ExerciseKind) {
+        db.transaction {
+            q.updateExerciseKind(kind.rawValue, id.toString())
+            if (kind == ExerciseKind.Cardio) q.updateExerciseSetCount(1, id.toString())
+        }
+    }
+
     fun setExerciseNote(id: Uuid, note: String?) {
         q.updateExerciseNote(note, id.toString())
     }
@@ -205,5 +255,12 @@ class ProgramRepository(private val db: SetBuddyDatabase, private val defaultSet
         }
     }
 }
+
+/**
+ * How many days ahead `setScheduleDayShiftingFollowing` looks for the value already recurring, to swap to it
+ * (bounded rotation) instead of inserting a duplicate and shifting the whole remaining horizon. Generous upper
+ * bound on realistic workout-rotation cycle lengths.
+ */
+const val NEAR_DUPLICATE_SEARCH_WINDOW = 60
 
 internal fun nowEpochMillis(): Long = Clock.System.now().toEpochMilliseconds()

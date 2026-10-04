@@ -28,7 +28,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import net.mountanos.setbuddy.android.notifications.DailyNotificationScheduler
 import net.mountanos.setbuddy.android.ui.NoteEditorDialog
+import net.mountanos.setbuddy.android.ui.formatCardioMinutes
 import net.mountanos.setbuddy.domain.CalendarDate
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.VolumeCalculator
 import net.mountanos.setbuddy.shared.data.ProgramRepository
 import net.mountanos.setbuddy.shared.data.WorkoutSessionRepository
@@ -37,7 +39,8 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 
 private data class RowKey(val exerciseId: String, val setIndex: Int)
-private data class RowState(var weight: String, var reps: String)
+/** [minutes]/[maxHeartRate] are the cardio counterparts of [weight]/[reps]; a row only ever uses one pair. */
+private data class RowState(var weight: String, var reps: String, var minutes: String = "", var maxHeartRate: String = "")
 
 @Composable
 fun WorkoutLoggingScreen(
@@ -70,12 +73,18 @@ fun WorkoutLoggingScreen(
             val key = RowKey(row.exerciseId, row.setIndex.toInt())
             val displayWeight = if (row.weight != 0.0) row.weight else null
             val displayReps = if (row.reps != 0L) row.reps else null
-            map[key] = RowState(displayWeight?.toString() ?: "", displayReps?.toString() ?: "")
+            map[key] = RowState(
+                displayWeight?.toString() ?: "",
+                displayReps?.toString() ?: "",
+                if (row.cardioMinutes != 0.0) formatCardioMinutes(row.cardioMinutes) else "",
+                if (row.maxHeartRate != 0L) row.maxHeartRate.toString() else "",
+            )
         }
         map
     }
 
-    val sessionVolume = exercises.sumOf { ex ->
+    // Cardio sets don't count toward weight × reps volume.
+    val sessionVolume = exercises.filter { ExerciseKind.fromRaw(it.kind) != ExerciseKind.Cardio }.sumOf { ex ->
         (0 until ex.setCount.toInt()).sumOf { setIndex ->
             val state = rowState[RowKey(ex.id, setIndex)]
             val w = state?.weight?.toDoubleOrNull()
@@ -92,12 +101,13 @@ fun WorkoutLoggingScreen(
         Text(workout?.name ?: "Workout", style = MaterialTheme.typography.headlineSmall)
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(exercises) { exercise ->
+                val isCardio = ExerciseKind.fromRaw(exercise.kind) == ExerciseKind.Cardio
                 TextButton(
                     onClick = { editingExerciseNote = exercise.id },
                     modifier = Modifier.padding(top = 12.dp),
                 ) {
                     Text(
-                        exercise.name + if (exercise.repsArePerSide == 1L) " · Per side ×2" else "",
+                        exercise.name + if (!isCardio && exercise.repsArePerSide == 1L) " · Per side ×2" else "",
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
@@ -114,26 +124,59 @@ fun WorkoutLoggingScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text("Set ${setIndex + 1}", modifier = Modifier.padding(top = 16.dp))
-                        OutlinedTextField(
-                            value = state.weight,
-                            onValueChange = { value ->
-                                rowState[key] = state.copy(weight = value)
-                                commit(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
-                            },
-                            label = { Text(refSet?.let { "Weight (ref ${it.weight})" } ?: "Weight") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = state.reps,
-                            onValueChange = { value ->
-                                rowState[key] = state.copy(reps = value)
-                                commit(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
-                            },
-                            label = { Text(refSet?.let { "Reps (ref ${it.reps})" } ?: "Reps") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                        )
+                        if (isCardio) {
+                            OutlinedTextField(
+                                value = state.minutes,
+                                onValueChange = { value ->
+                                    rowState[key] = state.copy(minutes = value)
+                                    commitCardio(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
+                                },
+                                label = {
+                                    Text(
+                                        refSet?.takeIf { it.cardioMinutes > 0 }
+                                            ?.let { "Minutes (ref ${formatCardioMinutes(it.cardioMinutes)})" } ?: "Minutes",
+                                    )
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = state.maxHeartRate,
+                                onValueChange = { value ->
+                                    rowState[key] = state.copy(maxHeartRate = value)
+                                    commitCardio(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
+                                },
+                                label = {
+                                    Text(
+                                        refSet?.takeIf { it.maxHeartRate > 0 }
+                                            ?.let { "Max HR (ref ${it.maxHeartRate})" } ?: "Max HR (bpm)",
+                                    )
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = state.weight,
+                                onValueChange = { value ->
+                                    rowState[key] = state.copy(weight = value)
+                                    commit(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
+                                },
+                                label = { Text(refSet?.let { "Weight (ref ${it.weight})" } ?: "Weight") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = state.reps,
+                                onValueChange = { value ->
+                                    rowState[key] = state.copy(reps = value)
+                                    commit(sessionRepository, session.id, exercise.id, setIndex, rowState[key]!!)
+                                },
+                                label = { Text(refSet?.let { "Reps (ref ${it.reps})" } ?: "Reps") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
@@ -217,6 +260,19 @@ private fun formatSessionVolume(volume: Double): String {
     } else {
         intVolume.toString()
     }
+}
+
+/** Cardio counterpart of [commit] — minutes accept a comma or a dot as the decimal separator. */
+private fun commitCardio(
+    repository: WorkoutSessionRepository,
+    sessionId: String,
+    exerciseId: String,
+    setIndex: Int,
+    state: RowState,
+) {
+    val minutes = state.minutes.replace(',', '.').trim().toDoubleOrNull() ?: 0.0
+    val maxHeartRate = state.maxHeartRate.trim().toIntOrNull() ?: 0
+    repository.updateCardioLoggedSet(Uuid.parse(sessionId), Uuid.parse(exerciseId), setIndex, minutes, maxHeartRate)
 }
 
 private fun commit(

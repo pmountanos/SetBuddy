@@ -48,7 +48,7 @@ This document states **product requirements**. The current app **implements** th
 - iOS
 - iPhone-first
 - Tablet optimization is not required for the initial release
-- **Android** (added 2026-09-12; feature parity with iOS reached 2026-09-16): native Jetpack Compose app, phone-first, sharing scheduling/volume/carryover logic and the persistence schema with iOS via a Kotlin Multiplatform `shared` module. `.xlsx` import/export, program/exercise editing, notes, and volume tracking are all ported — see `architecture.md` and `development_plan.md`. Not yet done: linking the shared module into the Xcode/iOS build.
+- **Android** (added 2026-09-12; feature parity with iOS reached 2026-09-16, re-synced 2026-10-04 with cardio and the late-September fixes): native Jetpack Compose app, phone-first, sharing scheduling/volume/carryover logic and the persistence schema with iOS via a Kotlin Multiplatform `shared` module. `.xlsx` import/export, program/exercise editing, notes, and volume tracking are all ported — see `architecture.md` and `development_plan.md`. Not yet done: linking the shared module into the Xcode/iOS build.
 
 ## Core Experience Principles
 

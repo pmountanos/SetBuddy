@@ -9,13 +9,16 @@ object ProgramSpreadsheetExport {
     private const val HEADER_NAME = "Exercise_Name"
     private const val HEADER_NOTES = "Notes"
     private const val HEADER_PER_SIDE = "Per side"
+    private const val HEADER_TYPE = "Type"
 
     fun buildXlsx(outline: ProgramOutline): ByteArray {
         if (outline.workouts.isEmpty()) throw ExportError.NoActiveProgram
         val usedNames = mutableSetOf<String>()
         val sheets = outline.workouts.map { workout ->
             val rows = mutableListOf<List<Cell>>()
-            rows.add(listOf(Cell.Text(HEADER_NAME), Cell.Text(HEADER_NOTES), Cell.Text(HEADER_PER_SIDE)))
+            rows.add(
+                listOf(Cell.Text(HEADER_NAME), Cell.Text(HEADER_NOTES), Cell.Text(HEADER_PER_SIDE), Cell.Text(HEADER_TYPE)),
+            )
             val sortedExercises = workout.exercises.sortedBy { it.sortOrder }
             for (ex in sortedExercises) {
                 rows.add(
@@ -23,10 +26,11 @@ object ProgramSpreadsheetExport {
                         Cell.Text(ex.name),
                         Cell.Text(ex.note ?: ""),
                         Cell.Text(if (ex.repsArePerSide) "x" else ""),
+                        Cell.Text(ex.kind.rawValue),
                     ),
                 )
             }
-            if (sortedExercises.isEmpty()) rows.add(listOf(Cell.Text(""), Cell.Text(""), Cell.Text("")))
+            if (sortedExercises.isEmpty()) rows.add(listOf(Cell.Text(""), Cell.Text(""), Cell.Text(""), Cell.Text("")))
             MinimalXlsxArchive.Sheet(uniqueSheetName(workout.name, usedNames), SpreadsheetFormatting.worksheetXml(rows))
         }
         return MinimalXlsxArchive.makeWorkbook(sheets)
@@ -38,11 +42,11 @@ object ProgramSpreadsheetExport {
         lines.add("program,${csv(outline.programName)},,,")
         for (workout in outline.workouts) {
             lines.add("workout,${csv(workout.name)},,,")
-            lines.add("column,sort_order,exercise_name,set_count,note,per_side")
+            lines.add("column,sort_order,exercise_name,set_count,note,per_side,type")
             for (ex in workout.exercises.sortedBy { it.sortOrder }) {
                 lines.add(
                     "exercise,${ex.sortOrder},${csv(ex.name)},${ex.setCount},${csv(ex.note ?: "")}," +
-                        if (ex.repsArePerSide) "yes" else "no",
+                        (if (ex.repsArePerSide) "yes" else "no") + ",${ex.kind.rawValue}",
                 )
             }
         }

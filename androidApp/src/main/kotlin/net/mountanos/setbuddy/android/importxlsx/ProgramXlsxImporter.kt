@@ -1,6 +1,7 @@
 package net.mountanos.setbuddy.android.importxlsx
 
 import net.mountanos.setbuddy.domain.CalendarDate
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.ImportExerciseRef
 import net.mountanos.setbuddy.domain.ImportedCycleDay
 import net.mountanos.setbuddy.shared.db.SetBuddyDatabase
@@ -30,12 +31,16 @@ class ProgramXlsxImporter(private val db: SetBuddyDatabase) {
         val period = cycle.size
         if (period == 0) throw ProgramImportError.EmptyProgram
 
-        removeAllProgramsPreservingCompletedHistory()
-
         val programId = Uuid.random().toString()
         val workoutIdBySheet = mutableMapOf<String, String>()
+        // A sheet can repeat an exercise name (e.g. a copy-paste duplicate); both rows then resolve to the same
+        // carried-over id, which would violate Exercise's primary key. Only the first keeps it.
+        val carriedOverIds = mutableSetOf<Uuid>()
 
+        // One transaction with the wipe, so a failed import rolls back instead of leaving no program at all.
         db.transaction {
+            removeAllProgramsPreservingCompletedHistory()
+
             val nextOrder = q.nextProgramRowOrder().executeAsOne()
             q.insertProgram(programId, programName, nextOrder)
 
@@ -43,14 +48,19 @@ class ProgramXlsxImporter(private val db: SetBuddyDatabase) {
                 if (day.isRestDay) continue
                 if (workoutIdBySheet.containsKey(day.sheetName)) continue
                 val workoutId = Uuid.random().toString()
-                q.insertWorkout(workoutId, programId, day.sheetName)
+                // First-encountered order in the cycle (interleaved, e.g. Push 1, Cardio 1, Pull 1, ...) — drives
+                // display/picker order instead of WorkoutTemplateDisplaySort's Push/Pull/Legs-only naming
+                // heuristic, which otherwise groups anything else (like Cardio) at the end.
+                q.insertWorkout(workoutId, programId, day.sheetName, workoutIdBySheet.size.toLong())
                 day.exercises.forEachIndexed { index, ex ->
                     val ref = ImportExerciseRef(day.sheetName, ex.name)
-                    val exerciseId = (exerciseCarryover[ref] ?: Uuid.random()).toString()
+                    val carriedOverId = exerciseCarryover[ref]?.takeIf { carriedOverIds.add(it) }
+                    val exerciseId = (carriedOverId ?: Uuid.random()).toString()
+                    // Cardio defaults to a single set (one duration/heart-rate reading), not the strength default.
+                    val setCount = if (ex.kind == ExerciseKind.Cardio) 1 else ProgramXlsxParser.DEFAULT_SET_COUNT_PER_EXERCISE
                     q.insertExercise(
-                        exerciseId, workoutId, ex.name, index.toLong(),
-                        ProgramXlsxParser.DEFAULT_SET_COUNT_PER_EXERCISE.toLong(),
-                        ex.note, if (ex.repsArePerSide) 1L else 0L,
+                        exerciseId, workoutId, ex.name, index.toLong(), setCount.toLong(),
+                        ex.note, if (ex.repsArePerSide) 1L else 0L, ex.kind.rawValue,
                     )
                 }
                 workoutIdBySheet[day.sheetName] = workoutId

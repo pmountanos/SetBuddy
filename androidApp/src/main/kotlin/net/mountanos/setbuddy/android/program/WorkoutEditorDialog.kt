@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,12 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.shared.data.ProgramExerciseOutline
 import net.mountanos.setbuddy.shared.data.ProgramOutlineRepository
 import net.mountanos.setbuddy.shared.data.ProgramRepository
 import kotlin.uuid.Uuid
 
-/** Ported from `WorkoutTemplateEditorSheet.swift` — workout name + per-exercise name/set-count/per-side editing, reorder, delete, add. */
+/** Ported from `WorkoutTemplateEditorSheet.swift` — workout name + per-exercise name/type/set-count/per-side editing, reorder, delete, add. */
 @Composable
 fun WorkoutEditorDialog(
     workoutId: Uuid,
@@ -85,6 +87,7 @@ fun WorkoutEditorDialog(
                             canMoveUp = index > 0,
                             canMoveDown = index < exercises.size - 1,
                             onNameChange = { newName -> programRepository.setExerciseName(exercise.id, newName) },
+                            onKindChange = { kind -> programRepository.setExerciseKind(exercise.id, kind); reload() },
                             onSetCountChange = { count -> programRepository.setExerciseSetCount(exercise.id, count); reload() },
                             onPerSideChange = { value -> programRepository.setExerciseRepsPerSide(exercise.id, value); reload() },
                             onMoveUp = {
@@ -124,6 +127,7 @@ private fun ExerciseEditorRow(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onNameChange: (String) -> Unit,
+    onKindChange: (ExerciseKind) -> Unit,
     onSetCountChange: (Int) -> Unit,
     onPerSideChange: (Boolean) -> Unit,
     onMoveUp: () -> Unit,
@@ -150,13 +154,33 @@ private fun ExerciseEditorRow(
                 Icon(Icons.Filled.Delete, contentDescription = "Delete exercise")
             }
         }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = exercise.kind == ExerciseKind.Strength,
+                onClick = { if (exercise.kind != ExerciseKind.Strength) onKindChange(ExerciseKind.Strength) },
+                label = { Text("Strength") },
+            )
+            FilterChip(
+                selected = exercise.kind == ExerciseKind.Cardio,
+                onClick = { if (exercise.kind != ExerciseKind.Cardio) onKindChange(ExerciseKind.Cardio) },
+                label = { Text("Cardio") },
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("Sets to log: ${exercise.setCount}")
             TextButton(onClick = { if (exercise.setCount > 1) onSetCountChange(exercise.setCount - 1) }) { Text("−") }
             TextButton(onClick = { if (exercise.setCount < 20) onSetCountChange(exercise.setCount + 1) }) { Text("+") }
-            Spacer(modifier = Modifier.weight(1f))
-            Text("Per side")
-            Switch(checked = exercise.repsArePerSide, onCheckedChange = onPerSideChange)
+            if (exercise.kind == ExerciseKind.Strength) {
+                Spacer(modifier = Modifier.weight(1f))
+                Text("Per side")
+                Switch(checked = exercise.repsArePerSide, onCheckedChange = onPerSideChange)
+            }
+        }
+        if (exercise.kind == ExerciseKind.Cardio) {
+            Text(
+                "Cardio sets log minutes and max heart rate instead of weight/reps.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

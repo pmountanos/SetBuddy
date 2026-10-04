@@ -1,5 +1,6 @@
 package net.mountanos.setbuddy.android.importxlsx
 
+import net.mountanos.setbuddy.domain.ExerciseKind
 import net.mountanos.setbuddy.domain.ImportedCycleDay
 import net.mountanos.setbuddy.domain.ImportedCycleExercise
 import org.xml.sax.Attributes
@@ -12,6 +13,11 @@ import javax.xml.parsers.SAXParserFactory
  * Ported from `Data/Import/ProgramXlsxParser.swift`. SAX-based (mirrors Swift's `XMLParserDelegate` structure),
  * same parsing rules, same header/legacy column-mapping precedence, same rest-day and per-side-marker detection —
  * see the fidelity table in `development_plan.md`'s Android import entry.
+ *
+ * Cardio: a row whose columns read **Minutes** / **Peak HR** (or a close synonym) marks the start of a cardio
+ * section — every name below it, to the end of the sheet, becomes a cardio exercise (minutes/max heart rate
+ * instead of weight/reps). A sheet can be all cardio (whole cardio day) or strength rows followed by a cardio
+ * section (e.g. finishing a lift day with a cardio set).
  */
 object ProgramXlsxParser {
     const val DEFAULT_SET_COUNT_PER_EXERCISE = 4
@@ -35,7 +41,7 @@ object ProgramXlsxParser {
                 val entryPath = "xl/" + target.trim('/')
                 val sheetXml = reader.extract(entryPath)
                 val cells = parseSheetCells(sheetXml, sharedStrings)
-                val exercises = exercisesFromCells(cells)
+                val exercises = exercisesFromSheet(cells)
                 val restByName = spec.name.contains("rest", ignoreCase = true)
                 val isRest = restByName || exercises.isEmpty()
                 cycle.add(ImportedCycleDay(spec.name, isRest, if (isRest) emptyList() else exercises))
@@ -109,11 +115,21 @@ object ProgramXlsxParser {
         }
     }
 
-    private fun exercisesFromCells(cells: Map<String, String>): List<ImportedCycleExercise> {
+    /** Strength rows, then (if the sheet has a cardio section header) the cardio rows below it. */
+    internal fun exercisesFromSheet(cells: Map<String, String>): List<ImportedCycleExercise> {
+        val cardioHeaderRow = cardioSectionHeaderRow(cells)
+        val strength = exercisesFromCells(cells, beforeRow = cardioHeaderRow)
+        val cardio = cardioHeaderRow?.let { cardioExercisesFromCells(cells, afterRow = it) } ?: emptyList()
+        return strength + cardio
+    }
+
+    /** @param beforeRow when given (a cardio section header was found), rows at or past it are excluded — they belong to [cardioExercisesFromCells] instead. */
+    private fun exercisesFromCells(cells: Map<String, String>, beforeRow: Int? = null): List<ImportedCycleExercise> {
         val mapping = importColumnMapping(cells)
         val rowNumbers = cells.keys.map { parseCellAddress(it).second }.filter { it >= 1 }.toSortedSet()
         val result = mutableListOf<ImportedCycleExercise>()
         for (row in rowNumbers) {
+            if (beforeRow != null && row >= beforeRow) continue
             val rawName = cells["${mapping.nameCol}$row"]?.trim()
             if (rawName.isNullOrEmpty()) continue
             if (row == 1 && isLikelyHeaderRow(cells, mapping)) continue
@@ -123,6 +139,43 @@ object ProgramXlsxParser {
         }
         return result
     }
+
+    /**
+     * Row (1-based) of a **Minutes** / **Peak HR** (or synonym) header pair marking where a cardio section starts,
+     * if the sheet has one — searched left-to-right, top-to-bottom, first match wins.
+     */
+    internal fun cardioSectionHeaderRow(cells: Map<String, String>): Int? {
+        val rowNumbers = cells.keys.map { parseCellAddress(it).second }.toSortedSet()
+        for (row in rowNumbers) {
+            for (index in 0 until headerScanColumns.size - 1) {
+                val raw = cells["${headerScanColumns[index]}$row"]?.trim()?.lowercase() ?: ""
+                if (!headerIsMinutesColumnTitle(raw)) continue
+                val nextRaw = cells["${headerScanColumns[index + 1]}$row"]?.trim()?.lowercase() ?: ""
+                if (headerIsMaxHeartRateColumnTitle(nextRaw)) return row
+            }
+        }
+        return null
+    }
+
+    /**
+     * Cardio exercise rows after a cardio section header — name only (same name column as the strength table
+     * above it, or **A** when the sheet is cardio-only); minutes/max heart rate are logged per session, not imported.
+     */
+    private fun cardioExercisesFromCells(cells: Map<String, String>, afterRow: Int): List<ImportedCycleExercise> {
+        val nameCol = importColumnMapping(cells).nameCol
+        val rowNumbers = cells.keys.map { parseCellAddress(it).second }.filter { it > afterRow }.toSortedSet()
+        return rowNumbers.mapNotNull { row ->
+            val rawName = cells["$nameCol$row"]?.trim()
+            if (rawName.isNullOrEmpty()) null else ImportedCycleExercise(rawName, kind = ExerciseKind.Cardio)
+        }
+    }
+
+    private fun headerIsMinutesColumnTitle(low: String): Boolean =
+        low == "minutes" || low == "min" || low == "mins"
+
+    private fun headerIsMaxHeartRateColumnTitle(low: String): Boolean =
+        low == "peak hr" || low == "max hr" || low == "max heart rate" || low == "peak heart rate" ||
+            low == "heart rate" || low == "hr"
 
     private fun parseCellAddress(ref: String): Pair<String, Int> {
         val colChars = ref.takeWhile { it.isLetter() }
