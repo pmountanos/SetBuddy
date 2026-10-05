@@ -1,5 +1,8 @@
 # Requirements Document
 
+> **Note (2026-10-05):** the native iOS (SwiftUI/SwiftData) and Android (Kotlin/Compose) apps this document describes have been **retired** and removed from the repository. The app is now the single React Native project in `mobile/`. The requirements themselves still hold. The native code remains in git history.
+
+
 ## Project Name
 Set Buddy
 

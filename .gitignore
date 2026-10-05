@@ -1,12 +1,8 @@
 # macOS
 .DS_Store
 
-# Xcode user state
-xcuserdata/
-*.xcuserstate
-
 # Build products / archives / exports — build/ExportOptions-*.plist are hand-authored signing
-# config (team ID, export method), not generated output, so they're kept and tracked.
+# config (export method — the team ID is added at build time), not generated output, so they're kept and tracked.
 build/*.xcarchive/
 *.ipa
 DistributionSummary.plist
@@ -16,14 +12,8 @@ ExportOptions.plist
 # VS Code workspace settings (machine-specific toolchain paths)
 .vscode/
 
-# SwiftPM
-.swiftpm/
-.build/
-
-# Gradle / Android / KMP
+# Gradle / Android
 .gradle/
-shared/build/
-androidApp/build/
 local.properties
 *.hprof
 captures/
@@ -35,9 +25,11 @@ captures/
 keystore/
 keystore.properties
 
-
 # React Native Android release APKs (scripts/build_mobile_android.sh)
 build/apk-mobile/
+
+# Last builds of the retired native apps, kept locally as a fallback
+build/native-final/
 
 # Local signing settings (Apple team ID) — see signing.local.env.example
 signing.local.env

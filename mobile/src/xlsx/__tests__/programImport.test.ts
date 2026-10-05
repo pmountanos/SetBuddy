@@ -14,8 +14,8 @@ import { decodeXmlEntities, parseXml } from '../miniSax';
 import { cardioSectionHeaderRow, exercisesFromSheet, marksRepsPerSide, parseSheetCells, ProgramImportError } from '../programXlsxParser';
 import { parseProgramXlsx } from '../readWorkbook';
 
-/** The same real workbooks the native iOS and Android tests use. */
-const fixture = (name: string) => new Uint8Array(readFileSync(join(__dirname, '../../../../Set BuddyTests/Fixtures', name)));
+/** Real workbooks (the same ones the retired native apps' tests used). */
+const fixture = (name: string) => new Uint8Array(readFileSync(join(__dirname, 'fixtures', name)));
 const cells = (entries: Record<string, string>) => new Map(Object.entries(entries));
 
 function setUp() {
