@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView as NativeSafeAreaView } from 'react-native-screens/experimental';
 
 import type { Exercise, LoggedSet } from '@/data/models';
 import type { CalendarDate } from '@/domain/calendarDate';
@@ -87,55 +88,57 @@ export function WorkoutLogger({ workoutId, date, onFinished }: { workoutId: stri
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView style={styles.flex} behavior="padding">
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-          <Text style={[styles.title, { color: theme.text }]} testID="workoutTitle">
-            {workout?.name ?? 'Workout'}
-          </Text>
-          {exercises.map((exercise) => (
-            <View key={exercise.id} style={[styles.exercise, { backgroundColor: theme.card }]}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${exercise.name}, notes`} onPress={() => setEditingNoteFor(exercise)}>
-                <Text style={[styles.exerciseName, { color: theme.text }]}>{exercise.name}</Text>
-                <Text style={[styles.exerciseMeta, { color: theme.secondary }]}>
-                  {exercise.kind === 'cardio' ? 'Cardio' : exercise.repsArePerSide ? 'Per side — volume ×2' : 'Strength'}
-                  {exercise.note ? ' · Note ›' : ' · Add note ›'}
-                </Text>
-                {exercise.note ? <Text style={[styles.note, { color: theme.secondary }]}>{exercise.note}</Text> : null}
-              </Pressable>
-              {Array.from({ length: exercise.setCount }, (_, setIndex) => (
-                <SetRow
-                  key={setIndex}
-                  theme={theme}
-                  exercise={exercise}
-                  setIndex={setIndex}
-                  logged={loggedByKey.get(`${exercise.id}/${setIndex}`)}
-                  reference={reference.get(exercise.id)?.get(setIndex)}
-                  onCommit={(first, second) => commit(exercise, setIndex, first, second)}
-                />
-              ))}
-            </View>
-          ))}
-          {exercises.length === 0 ? <Text style={[styles.exerciseMeta, { color: theme.secondary }]}>This workout has no exercises yet. Add some on the Program tab.</Text> : null}
-        </ScrollView>
-
-        <View style={[styles.bar, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
-          <View style={styles.barVolume}>
-            <Text style={[styles.barLabel, { color: theme.secondary }]}>Session volume</Text>
-            <Text style={[styles.barValue, { color: theme.text }]} testID="sessionVolume">
-              {formatVolume(sessionVolume)} kg
+      <AboveTabBar>
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+            <Text style={[styles.title, { color: theme.text }]} testID="workoutTitle">
+              {workout?.name ?? 'Workout'}
             </Text>
+            {exercises.map((exercise) => (
+              <View key={exercise.id} style={[styles.exercise, { backgroundColor: theme.card }]}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`${exercise.name}, notes`} onPress={() => setEditingNoteFor(exercise)}>
+                  <Text style={[styles.exerciseName, { color: theme.text }]}>{exercise.name}</Text>
+                  <Text style={[styles.exerciseMeta, { color: theme.secondary }]}>
+                    {exercise.kind === 'cardio' ? 'Cardio' : exercise.repsArePerSide ? 'Per side — volume ×2' : 'Strength'}
+                    {exercise.note ? ' · Note ›' : ' · Add note ›'}
+                  </Text>
+                  {exercise.note ? <Text style={[styles.note, { color: theme.secondary }]}>{exercise.note}</Text> : null}
+                </Pressable>
+                {Array.from({ length: exercise.setCount }, (_, setIndex) => (
+                  <SetRow
+                    key={setIndex}
+                    theme={theme}
+                    exercise={exercise}
+                    setIndex={setIndex}
+                    logged={loggedByKey.get(`${exercise.id}/${setIndex}`)}
+                    reference={reference.get(exercise.id)?.get(setIndex)}
+                    onCommit={(first, second) => commit(exercise, setIndex, first, second)}
+                  />
+                ))}
+              </View>
+            ))}
+            {exercises.length === 0 ? <Text style={[styles.exerciseMeta, { color: theme.secondary }]}>This workout has no exercises yet. Add some on the Program tab.</Text> : null}
+          </ScrollView>
+
+          <View style={[styles.bar, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
+            <View style={styles.barVolume}>
+              <Text style={[styles.barLabel, { color: theme.secondary }]}>Session volume</Text>
+              <Text style={[styles.barValue, { color: theme.text }]} testID="sessionVolume">
+                {formatVolume(sessionVolume)} kg
+              </Text>
+            </View>
+            {keyboardVisible ? (
+              // Number pads have no Return key; this is how the keyboard is dismissed.
+              <Button label="Done" compact testID="workoutDoneButton" onPress={endEditing} />
+            ) : (
+              <>
+                <Button label={sessionNote ? 'Edit note' : 'Note'} kind="plain" compact onPress={() => setEditingSessionNote(true)} />
+                <Button label="Finish" compact testID="workoutFinishButton" onPress={finish} />
+              </>
+            )}
           </View>
-          {keyboardVisible ? (
-            // Number pads have no Return key; this is how the keyboard is dismissed.
-            <Button label="Done" compact testID="workoutDoneButton" onPress={endEditing} />
-          ) : (
-            <>
-              <Button label={sessionNote ? 'Edit note' : 'Note'} kind="plain" compact onPress={() => setEditingSessionNote(true)} />
-              <Button label="Finish" compact testID="workoutFinishButton" onPress={finish} />
-            </>
-          )}
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </AboveTabBar>
 
       <TextPrompt
         visible={editingNoteFor !== null}
@@ -168,6 +171,20 @@ export function WorkoutLogger({ workoutId, date, onFinished }: { workoutId: stri
 function endEditing() {
   TextInput.State.currentlyFocusedInput()?.blur();
   Keyboard.dismiss();
+}
+
+/**
+ * Keeps its content clear of the tab bar. On iPhone the tab bar floats over the screen, and only a scroll view
+ * is moved out of its way automatically — a fixed bar at the bottom (Finish, Done, session volume) would sit
+ * underneath it. On Android the tabs already reserve that space.
+ */
+function AboveTabBar({ children }: { children: ReactNode }) {
+  if (Platform.OS !== 'ios') return <View style={styles.flex}>{children}</View>;
+  return (
+    <NativeSafeAreaView style={styles.flex} edges={{ bottom: true }}>
+      {children}
+    </NativeSafeAreaView>
+  );
 }
 
 type Chrome = 'neutral' | 'reference' | 'entered';
