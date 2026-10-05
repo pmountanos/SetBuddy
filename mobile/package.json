@@ -48,5 +48,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint"
   },
-  "private": true
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0"
 }

@@ -1,244 +1,145 @@
-# Requirements Document
+# Requirements
 
-> **Note (2026-10-05):** the native iOS (SwiftUI/SwiftData) and Android (Kotlin/Compose) apps this document describes have been **retired** and removed from the repository. The app is now the single React Native project in `mobile/`. The requirements themselves still hold. The native code remains in git history.
-
-
-## Project Name
-Set Buddy
+These are the product requirements for Set Buddy, with a short note under each on how the app meets it. File paths are relative to `mobile/src/`. For how the pieces fit together see `architecture.md`.
 
 ## Purpose
-Build an iPhone-first fitness tracking app optimized for fast workout logging during gym sessions. The product should emphasize minimal friction, quick set entry, clear visibility of **prior workout values as reference** (distinct from **new** entries), and simple daily guidance on whether the user should train or rest.
+A phone app optimised for fast workout logging during gym sessions: minimal friction, quick set entry, clear visibility of previous values as a **reference** (distinct from **new** entries), and simple daily guidance on whether to train or rest.
 
-## As-built alignment
-This document states **product requirements**. The current app **implements** the first-release scope below with these concrete behaviors (see `architecture.md` for file/type names):
+## Goals
+- Log a workout quickly on a phone while training.
+- Show the current day's workout clearly, with minimal clutter.
+- Support one active program at a time.
+- Make previous values easy to see and re-enter or adjust.
+- Track total volume as the main progress measure.
+- Send a daily notification saying whether it is a workout or a rest day.
 
-- **Single program:** User may **create** a program in-app or **import** `.xlsx`. Import or **Start over** replaces program + schedule; **completed** sessions remain in History; in-progress session cleared.
-- **Import:** `.xlsx` only; after file pick, user chooses **which worksheet day in the cycle is next** and the **first calendar day** that maps to it (start date persisted in UserDefaults); worksheet tab order = day cycle; row-1 headers can label **Notes** and **Per side** columns (order flexible); rest via empty sheet or sheet name containing “Rest”. When a program is already active, exercises in the new workbook are matched **by name** against it: exact matches keep their reference-weight history automatically, close (≥75%) matches are offered for the user to confirm before being carried over, and unmatched exercises start fresh (no history to carry).
-- **Units:** Weight is shown and entered in **kg** (no lb in UI).
-- **Default sets:** New/imported exercises default to **4** sets unless the spreadsheet implies otherwise; **in-app**, each exercise’s **`setCount`** can be edited within **1…20** (`ProgramRepository`).
-- **Notifications:** Daily local notification; user can **disable** reminders and set **time of day**; permission prompt skipped when running with `-uiTesting`.
-- **History:** List shows completed sessions + volume; **navigation** to per-session **detail** (sets, exercise names, totals).
-- **Program screen:** Template workouts/exercises (**Push 1 / Pull 1 / Legs 1 / …** order when those names exist), full in-app editing (parity with importable fields), and **upcoming schedule** rows for **7, 14, or 21** days from today (setting in **Settings → Program**, default 14) + short copy.
-- **Today:** If the user has **already completed** today’s scheduled workout, the **Start** / **Continue** action must not appear (progress lives in History). If today’s workout is **in progress**, the app should surface **Continue** (or equivalent) rather than implying a fresh **Start** only.
-- **Workout log:** Prior session weight/reps appear for **reference** with strong visual distinction from **entered** data (e.g. filled orange reference fields vs committed-entry styling); **only entered** set data is **persisted** when the workout is finished (reference-only rows are not saved). Reference values are found by **exercise identity** (any workout that logged that exercise), not restricted to the current workout template — see **Import** and **Schedule realignment**, below.
-- **Schedule realignment:** If the user misses a scheduled day (e.g. travel), the **Today** screen offers a **“Change today’s plan”** control to force today onto whatever workout (or rest) they're actually doing; the rest of the schedule shifts forward by one day so the workout rotation's order stays correct without the user re-entering every missed day by hand.
-- **Export:** **Settings → Export** offers **Export program** and **Export workout history**. The app prefers **`.xlsx`** and falls back to **`.csv`** if workbook generation fails. File names use **`Set_Buddy_Program_yyyy-MM-dd_HHmmss`** and **`Set_Buddy_History_yyyy-MM-dd_HHmmss`**, then the **system share sheet** (temporary files are removed after sharing). Program **`.xlsx`** matches import layout (**one sheet per workout**, `Exercise_Name` / `Notes` / `Per side`, workouts ordered like the Program tab). Program **`.csv`** includes program/workout/exercise rows (including **`set_count`**) plus **schedule** rows (`schedule_date`, rest/workout, workout name). History export is one row per **logged set** (completed time, workout, schedule day, totals, exercise, set #, weight, reps, per-side, set volume); after each **completed session**’s set rows, a **`workout_total`** row gives the **cumulative set volume** for that session (detail columns left blank).
+## Non-goals
+Multiple active programs, analytics beyond total volume, social features, wearables, coach or multi-user support, exercise videos, importing target reps, and complex gestures.
 
-## Product Goals
-- Allow the user to log workouts quickly on an iPhone while actively training.
-- Display the current day's workout clearly with minimal clutter.
-- Support one active workout program at a time.
-- Make previous workout values easy to see and re-type or adjust (reference in UI; persistence only for what the user enters).
-- Track total volume as the main progress metric in the first version.
-- Provide a daily notification that indicates either the scheduled workout or a rest day.
+## Platforms
+- iPhone and Android phones, from one React Native codebase.
+- Phone-first. Tablet layouts are not a requirement.
+- Local-first: everything works offline and nothing leaves the device unless the user exports it.
 
-## Non-Goals
-- Multiple active programs
-- Advanced analytics beyond total volume
-- Social features
-- Wearables integration
-- Coach or multi-user support
-- Exercise video libraries
-- Importing target reps
-- Complex custom gestures or advanced data-entry patterns
+## Principles
+- **Speed first.** Few taps per set.
+- **Small-screen clarity.** Scannable and usable one-handed in a gym.
+- **Reference versus entered.** Previous values must look different from today's entries, and only what the user enters may be stored.
+- **Progressive disclosure.** Secondary information, such as exercise notes, stays hidden until asked for.
 
-## Target Users
-- Individual lifters using an iPhone during workouts
-- Users who want very fast logging with minimal taps
-- Users who train on a recurring schedule and want a lightweight daily workflow
+## Functional requirements
 
-## Platform
-- iOS
-- iPhone-first
-- Tablet optimization is not required for the initial release
-- **Android** (added 2026-09-12; feature parity with iOS reached 2026-09-16, re-synced 2026-10-04 with cardio and the late-September fixes): native Jetpack Compose app, phone-first, sharing scheduling/volume/carryover logic and the persistence schema with iOS via a Kotlin Multiplatform `shared` module. `.xlsx` import/export, program/exercise editing, notes, and volume tracking are all ported — see `architecture.md` and `development_plan.md`. Not yet done: linking the shared module into the Xcode/iOS build.
+### 1. Program
+- Exactly one active program, with a name, workouts, exercises, a per-exercise set count, optional exercise notes, and a schedule of workout and rest days.
+- The user can create a starter program in the app or import one from a spreadsheet, and can edit every part of it in the app.
+- Replacing the program (import or **Start over**) keeps completed sessions in History and clears a workout in progress.
 
-## Core Experience Principles
+*How:* `data/programRepository.ts`; editing UI in `ui/WorkoutEditor.tsx` and `app/(tabs)/program.tsx`.
 
-### Speed First
-The app must minimize taps and reduce time spent interacting with the screen during workouts.
+### 2. Daily status and the Today screen
+- The app determines whether today is a workout day or a rest day and shows it immediately.
+- A workout day offers a fast way into logging. If today's workout is already in progress the action reads **Continue**; if it is already finished, **Start** is not offered — **Reopen** is, so a mistaken Finish can be undone with the entered sets intact.
 
-### Small-Screen Clarity
-Layouts must be easy to scan and interact with on iPhone screens in a gym environment.
+*How:* `state/todayStatus.ts`, `app/(tabs)/index.tsx`. Status is re-read whenever the tab is shown.
 
-### Reference vs entered (prior session)
-Values shown from the **prior completed** workout should be visually distinguishable from **new** entries (e.g. high-contrast field treatments such as orange-filled reference fields vs a different style once committed). **Persistence** should reflect **only** what the user commits for the current session, not a silent copy of reference data.
+### 3. Workout logging
+- Show the workout's name, its exercises in order, and each exercise's sets.
+- Each set takes **weight** (kilograms, decimals allowed) and **reps**.
+- Entry uses the system numeric keypads, not the full keyboard, and not +/- steppers.
+- There must be an obvious way to dismiss the keypad, since number pads have no Return key.
+- An interrupted workout must be resumable without losing anything entered.
 
-### Progressive Disclosure
-Secondary information should stay hidden until needed, including exercise notes.
+*How:* `ui/WorkoutLogger.tsx`. Each value is written to the database as it is typed, so nothing depends on how a field loses focus or on the app staying alive. A **Done** button in the bottom bar dismisses the keypad.
 
-## Functional Requirements
+### 4. Reference values
+- Each set shows the most recent logged values for that exercise as a reference when today's log starts.
+- Reference values must be visually distinct from entered values.
+- Only values the user enters are stored. Touching a set and leaving it unchanged counts as confirming it.
+- A set that was never touched, or was entered and then cleared back to nothing, is not saved when the workout is finished.
 
-### 1. Program Management
-- The app must support exactly one active training program at a time.
-- A program must include:
-  - Program name
-  - Scheduled workout days
-  - Scheduled rest days
-  - Workouts
-  - Exercises
-  - Set structure
-  - Optional exercise notes imported from source data
+*How:* reference lookup is by exercise identity across all completed sessions (`data/sessionRepository.ts`, `mostRecentLoggedValuesByExercise`), not tied to one workout. Orange fields are reference, high-contrast fields are entered.
 
-### 2. Daily Workout Status
-- The app must determine whether the current day is:
-  - A workout day, or
-  - A rest day
-- If it is a workout day, the app must display the scheduled workout.
-- If it is a rest day, the app must clearly indicate that no workout is scheduled.
+### 5. Finishing a workout
+- Finishing is one action with a single confirmation that states only entered sets are saved.
+- The workout's name at the time is stored with the session, so History stays readable after the program is later replaced.
 
-### 3. Today Screen
-The Today screen must show:
-- Today's status
-- Scheduled workout or rest day
-- Fast entry point into the current workout **when it has not already been completed today**
-- When today’s scheduled workout is **already in progress**, the entry point should read as **resume** (e.g. **Continue**), not only as a fresh **Start**
+### 6. Exercise notes
+- Notes can be imported from the spreadsheet and edited in the app.
+- They do not occupy the main logging view; tapping an exercise's name opens its note.
 
-**As-built:** **`TodayViewModel`** uses **`WorkoutSessionRepository.activeSession`** to set **`workoutInProgress`**; **`TodayScreen`** refreshes when the **Today** tab is selected.
+### 7. Volume
+- Total volume is weight × reps summed over entered sets, doubled for exercises marked **per side**.
+- It is shown live while logging, in the History list, and in each session's detail.
 
-### 4. Workout Logging
-The workout logging flow must:
-- Show the workout name
-- Show exercises in order
-- Show each exercise's sets
-- Allow entry of:
-  - Weight
-  - Reps
-- Support fast per-set logging on iPhone
+*How:* `domain/volume.ts`.
 
-### 5. Input Controls
-- Weight and reps must use **system numeric entry** (large **number-style** keypads—not the full QWERTY keyboard). **+/- steppers are not used.**
-- A clear way to dismiss the keyboard and commit values is required (on-device number pads may not show a system accessory bar when fields live inside a list).
-- Controls must be easy to use quickly during a workout.
-- The design should favor repeated efficient entry over complex interaction models.
+### 8. Cardio
+- An exercise can be marked **cardio** instead of strength. A whole cardio day is just a workout whose exercises are cardio.
+- Cardio sets record **minutes** and **max heart rate**, follow the same reference and only-entered-is-saved rules, and do not count toward volume.
+- Switching an exercise to cardio sets its set count to 1 (still adjustable).
 
-**As-built:** Decimal pad for weight (kg), number pad for reps; **Done** in the bottom chrome (above session volume) commits and dismisses the keyboard via **`resignFirstResponder`**; **Finish** also dismisses the keyboard before the completion dialog.
+### 9. Schedule
+- The schedule is stored per calendar day and kept filled about 28 weeks ahead.
+- The Program tab lists the next 7, 14 or 21 days (chosen in Settings; default 14) and lets the user change any day.
+- **Realignment:** changing a day — from Today's **Change today's plan** or the Program tab — must keep the rotation's order. If the chosen workout is already due again within the next 60 days, the app pulls it forward and shifts only the days in between. Otherwise it inserts the workout and shifts every later day by one. **Add a rest day** always inserts.
+- Deleting a workout turns the days that used it into rest days.
 
-### 6. Prior-session reference (workout log)
-- The app must show prior workout weight/reps **per set** (from the last **completed** session for that workout template) as **reference** when starting today’s log.
-- Reference values must be **visually distinct** from entered values (e.g. orange-filled weight/rep fields vs a distinct “committed” field style).
-- **Only** values the user **commits** during the current session are **stored** on finish; reference-only rows must not be persisted as if they were new data.
-- Once the user has committed a set (including confirming the same numbers as reference after focusing a field), it should read as **current-session** styling.
+*How:* `ProgramRepository.setScheduleDayShiftingFollowing`.
 
-### 7. Exercise Notes
-- The app must support importing an exercise note column.
-- Notes should not dominate the main workout view.
-- If the user taps the exercise header/name, the user must be able to **view, add, and edit** the note and save it back to the exercise.
+### 10. Spreadsheet import
+- Imports `.xlsx`. Each worksheet is one day of the rotation, in tab order. A sheet whose name contains "rest", or that has no exercises, is a rest day.
+- Column A holds exercise names unless row 1 has headers. Recognised headers: an exercise-name column, **Notes**, **Per side** (also "Per set"), and **Type**. Without headers, column B is the note and column C the per-side marker (`x`, `yes`, `true`, `1`, `✓`).
+- A row reading **Minutes** then **Peak HR** (or close synonyms) starts a cardio section: every exercise below it on that sheet is cardio.
+- After picking a file the user chooses which day of the workbook comes next and which calendar day it falls on, then confirms.
+- A failed import leaves the existing program untouched.
 
-**As-built:** **`ExerciseNoteEditorSheet`** from workout logging and Program tabs; persisted on **`PersistedExercise.note`**.
+*How:* `xlsx/programXlsxParser.ts`, `data/programImporter.ts`, `ui/ImportStaging.tsx`.
 
-### 8. Progress Tracking
-- Total volume is the primary progress metric for the first version.
-- Total volume must be computed from logged set data.
-- At minimum, total volume should be calculated as weight × reps, aggregated appropriately.
-- The app should display total volume in workout summaries and any basic history/progress surfaces included in the initial version.
+### 11. Carrying history across an import
+- Re-importing must not lose the reference values of exercises that are still in the program.
+- Exercises are matched by name against the program being replaced: exact matches (ignoring case and surrounding spaces) carry over automatically; close matches (similarity of at least 0.75) are shown for the user to accept or reject; the rest start fresh.
 
-**As-built:** Running **session** total on the log screen; history list and session detail show aggregates.
+*How:* `domain/carryoverMatcher.ts`. A carried-over exercise keeps its id, which is what reference lookups key on.
 
-### 9. Notifications
-- The app must provide a notification every day (when enabled and authorized).
-- On workout days, the notification should remind the user about the scheduled workout.
-- On rest days, the notification should explicitly state that it is a rest day.
+### 12. Export
+- The user can export the current program and the complete workout history from Settings.
+- `.xlsx` when possible, `.csv` as a fallback, with date-and-time-stamped file names, through the system share sheet.
+- The program workbook has one sheet per workout in the layout the importer reads, so it imports back unchanged, cardio included.
+- The history export has one row per logged set, followed for each session by a `workout_total` row carrying that session's volume.
 
-**As-built:** User can turn off daily scheduling and set clock time in Settings; scheduling uses the same calendar logic as Today (14-day horizon of pending requests).
+*How:* `export/`.
 
-### 10. Data Import
-The initial import process must support:
-- Program structure
-- Workout structure
-- Exercise list
-- Set structure needed by the app
-- Exercise notes
+### 13. Reminders
+- When enabled and permitted, one local notification per day at a time the user chooses.
+- Workout days name the workout; rest days say so.
+- Reminders follow the schedule: any change to the program or schedule re-plans them.
+- On Android the user is told that on-time delivery needs the system's "Alarms & reminders" permission, with a shortcut to it.
 
-The initial import process does not need to support:
-- Target reps import
+*How:* `notifications/`. The next 14 days are kept scheduled and rolled forward whenever the app is opened.
 
-**As-built:** `.xlsx` via Settings file picker → **confirmation sheet** with **next day in cycle** picker + **first calendar day**; import builds a forward **horizon** with **`cycleStartIndex`** alignment (see `ProgramXlsxImporter`).
+### 14. History
+- A list of completed sessions with date and volume, newest first.
+- Each opens to a detail view: every exercise, every set, per-exercise totals, and an editable workout note.
 
-### 11. History and Progress
-The app should include a basic history/progress area focused on total volume.
-The initial version should prioritize:
-- Workout-level total volume
-- Simple exercise or workout history if feasible
+### 15. Upgrading from the earlier native apps
+- Installing this app over the earlier native iOS or Android app must keep the user's program, schedule and history.
 
-Advanced analytics are out of scope for the first release.
+*How:* `data/appDatabase.ts` on first launch. On Android the old database file has the same schema and is adopted as is. On iOS the old SwiftData store is read and imported (`data/legacy/swiftDataStore.ts`). The old files are only read, never changed.
 
-**As-built:** **Session detail** screen with per-exercise sets and volumes satisfies “if feasible.”
+## Interface requirements
+- Controls large enough for gym use; common actions never more than a tap or two away.
+- No confirmations during normal logging; only for finishing, and for destructive actions.
+- Light and dark appearance follow the system setting.
+- Five tabs: Today, Workout, Program, History, Settings. Settings shows the version and build number.
 
-### 12. In-Progress Workout State
-- The app must preserve in-progress workout data if the session is interrupted.
-- The user must be able to resume an incomplete workout without losing entered values.
-
-### 13. Workout Completion
-- The user must be able to complete a workout after logging all desired sets.
-- Completion behavior should be lightweight and should not add unnecessary friction.
-
-**As-built:** **Finish** (with confirmation) saves **`workoutTitleSnapshot`**, **`completedAt`**, and **`isComplete`**; **removes** any **`PersistedLoggedSet`** that was never user-entered (`!userEditedValues`) so History only contains **entered** sets. Dialog copy states that only entered sets are saved.
-
-### 14. Spreadsheet export (as-built)
-- The user must be able to export the **current program** and **full workout history** from Settings for backup or analysis.
-- Export formats: **`.xlsx`** when possible, **`.csv`** as fallback; filenames include **date and time** (see **As-built alignment** at the top of this document).
-- History exports list every **logged set**; after each **completed session**’s set rows, a **summary row** (`exercise` = `workout_total`) carries the **cumulative `set_volume`** for that session (other detail columns empty).
-
-### 15. Schedule Realignment (as-built)
-- If the user misses one or more scheduled days, the app must let them realign the schedule from the **Today** screen rather than requiring a trip to the Program tab.
-- Forcing a day onto a different workout (or rest) than currently scheduled must not corrupt the spreadsheet's cycle order: if that workout is already due again soon, the app must **swap** it forward (and shift only the days in between) rather than inserting a duplicate and permanently delaying every later day by one. Only when the forced workout doesn't recur nearby should the later days shift to make room for it (the genuine "missed a day, catch up" case).
-
-**As-built:** **`TodayViewModel.forceTodaysSchedule(to:)`**, surfaced via the **“Change today’s plan”** menu on **`TodayScreen`**; reuses **`ProgramRepository.setScheduleDayShiftingFollowing`**, the same cascade the Program tab’s per-day schedule menu already used. That function first checks whether the forced value recurs within the next 60 days (`nearDuplicateSearchWindow`); if so it rotates only the bounded window up to that recurrence, leaving everything beyond it untouched; otherwise it falls back to the original shift-and-extend-the-horizon-by-one-day behavior. **Add a rest day** opts out (`preferNearestRecurrence: false`) since it specifically means one more day off, not a rearrangement. Fixed 2026-09-29 after a real multi-day named-cycle import (Push/Cardio/Pull/Cardio/Legs/Rest, 12 sheets) surfaced the bug: forcing a day to a workout due again a few days later used to duplicate it and permanently shift every later day one day later than the spreadsheet intended.
-
-### 16. Exercise Carryover on Import (as-built)
-- Re-importing a program (replacing the active one) must not silently discard the ability to see prior weights for exercises that are still part of the new program.
-- The app must match exercises between the program being replaced and the newly imported workbook **by name**.
-- **Exact** name matches (case/whitespace-insensitive) must carry over automatically, without user interaction.
-- **Close but not exact** name matches must be presented to the user to confirm or reject before being carried over.
-- Exercises with no reasonable match must be treated as new (no history to carry).
-
-**As-built:** **`ExerciseCarryoverMatcher`** (exact pass, then greedy best-score assignment for matches `>= 0.75` similarity via **`StringSimilarity`**’s Levenshtein ratio) runs when a file is picked (**`ImportViewModel.stageImportFromPickedFile`**); suggestions appear as pre-checked toggles in a **“Carry over previous weights”** section on the import staging sheet. Confirmed matches are passed to **`ProgramXlsxImporter.importReplacingStore(..., exerciseCarryover:)`**, which reuses the old exercise’s id so **`WorkoutSessionRepository.mostRecentLoggedValuesByExercise`** keeps finding its logged history.
-
-### 17. Cardio Exercises (as-built)
-- The user must be able to mark an exercise as **cardio** instead of strength, both as a standalone workout day (e.g. a dedicated "Cardio" day, alongside Push 1/Pull 1/Legs 1/Rest) and as one exercise within an otherwise-strength workout (e.g. finishing a lifting session with a cardio set).
-- Cardio sets must track **total minutes** and **max heart rate** instead of weight/reps.
-- Cardio sets must follow the same reference-value carryover, only-entered-sets-are-saved, and set-count behavior as strength sets — no separate interaction model.
-- Cardio sets must not contribute to weight × reps volume; History and exports must still record their minutes/max heart rate.
-
-**As-built:** **`ExerciseKind`** (`.strength` / `.cardio`) on **`PersistedExercise`**, set via a **Strength/Cardio** segmented control in the workout template editor (replaces the "Per side" toggle for cardio exercises). A "Cardio day" is just a normal workout template made up of cardio exercises — no separate schedule-day concept was needed since **`ScheduledDayKind`**/the workout picker already accept any named workout. **`PersistedLoggedSet`** gained `cardioMinutes`/`maxHeartRate` fields alongside the existing `weight`/`reps`; **`WorkoutLoggingScreen`** renders **Minutes**/**Max HR (bpm)** fields (same reference/entered chrome as weight/reps) when the exercise's section is cardio, via a parallel **`WorkoutCardioSetRowView`**. History and both spreadsheet exports (program `Type` column; history `type`/`cardio_minutes`/`max_heart_rate` columns) carry the new fields; volume calculations skip cardio sets. `.xlsx` **import** (2026-09-28, second pass) also recognizes cardio: a row reading **Minutes** / **Peak HR** (or a close synonym — see `ProgramXlsxParser.cardioSectionHeaderRow`) marks the start of a cardio section on a sheet — every exercise name below it, to the end of that sheet, imports as cardio. A sheet can be a normal strength day that finishes with a cardio section (one exercise, e.g. a treadmill set after lifting), or be cardio-only from the first row (a whole cardio day).
-
-## User Interface Requirements
-
-### Workout Logging Screen
-The workout logging screen must be the primary operational screen and should:
-- Be optimized for iPhone use
-- Prioritize readability and quick entry
-- Surface **reference** (prior session) vs **entered** values clearly
-- Make weight (kg) and rep entry fast via numeric keypads
-- Allow **note edit** by tapping exercise section headers
-
-### Usability
-- Controls must be large enough for gym use
-- Common actions must not require deep navigation
-- The app should avoid unnecessary confirmations during normal logging flow
-
-## Minimum Screen Set
-The first release should include:
-- Today screen
-- Workout logging screen
-- Program overview or schedule screen
-- History/progress screen
-- Basic settings screen
-
-**As-built:** Five tabs in `MainTabView` (Today, Workout, Program, History, Settings). **Settings** includes **Export program** and **Export workout history** (see section 14), and a **version/build number footer** (“Version 1.0 (5)”) for troubleshooting builds shared with other people — the same number is baked into the archive scripts' exported `.ipa` filenames.
-
-## Open Requirement
-Earlier drafts referenced a single unresolved product decision. **No such item blocks the current v1 feature set** documented here. If a new decision is introduced (e.g. multi-program), requirements and import behavior should be updated explicitly.
-
-## Success Criteria
-The first release is successful if:
-- The user can immediately see whether today is a workout day or rest day
-- The user can log a full workout quickly from an iPhone
-- Prior-session **reference** values make repeated workout entry easier without silently duplicating old data in storage
-- Exercise notes are available on demand (sheet editor) without cluttering the main list UI
-- Daily notifications correctly reflect workout or rest-day status (when enabled)
-- Total volume is reliably tracked and visible as the main progress metric
-- The user can export the active program and completed workout history to spreadsheets when needed
-- Missing a scheduled day doesn't require manually re-fixing the whole calendar — forcing today's plan on the Today screen realigns the rest of the rotation automatically
-- Re-importing an updated program doesn't erase the ability to see prior weights for exercises that carried over from the old one
+## Success criteria
+The app succeeds if the user can:
+- See at once whether today is a workout or rest day.
+- Log a full workout quickly from a phone.
+- Tell previous values from today's entries, without old data being silently re-saved.
+- Reach an exercise's note when needed without it cluttering the list.
+- Get a correct daily reminder when enabled.
+- See total volume during the session and afterwards.
+- Export the program and history to a spreadsheet.
+- Fix a missed day from the Today screen without re-doing the calendar by hand.
+- Re-import an updated program without losing previous weights for exercises that carried over.
