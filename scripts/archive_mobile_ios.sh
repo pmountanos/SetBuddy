@@ -6,7 +6,8 @@
 # The build number is `expo.ios.buildNumber` in mobile/app.json. Bump it by hand before running when you want
 # a new build number (it must only ever go up; the native app's last build was 14).
 #
-# Requires Node (for Expo), CocoaPods, and Xcode signed in to the team in mobile/app.json (`ios.appleTeamId`).
+# Requires Node (for Expo), CocoaPods, and Xcode signed in to your Apple Developer team. The team ID is read from
+# signing.local.env at the repo root (gitignored — copy signing.local.env.example) or the APPLE_TEAM_ID variable.
 #
 # Usage (from repo root):
 #   ./scripts/archive_mobile_ios.sh
@@ -20,7 +21,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ARCHIVE="$ROOT/build/SetBuddy_mobile.xcarchive"
 EXPORT="$ROOT/build/ipa-mobile"
-PLIST="$ROOT/build/ExportOptions-AdHoc.plist"
+source "$ROOT/scripts/apple_team.sh"
+require_apple_team
+PLIST="$(export_options_with_team "$ROOT/build/ExportOptions-AdHoc.plist")"
 
 cd "$ROOT/mobile"
 

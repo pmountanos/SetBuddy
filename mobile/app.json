@@ -9,12 +9,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "net.mountanos.Set-Buddy",
-      "buildNumber": "16",
-      "appleTeamId": "XXXXXXXXXX"
+      "buildNumber": "16"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#4169E1",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

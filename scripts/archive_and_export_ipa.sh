@@ -5,8 +5,9 @@
 # iPhone, choose it as the run destination, **Product → Run** (⌘R). Signing &
 # Capabilities should show **Automatically manage signing** and your team
 # (paid team or **Personal Team** while enrollment is pending). If Xcode shows
-# signing errors, fix them there first — this script uses the same team ID as
-# `build/ExportOptions-Development.plist` (must match the team Xcode uses).
+# signing errors, fix them there first. The team ID is not stored in the project:
+# this script reads it from signing.local.env (gitignored — copy
+# signing.local.env.example) or the APPLE_TEAM_ID variable.
 #
 # **This script:** bumps the build number (`CURRENT_PROJECT_VERSION`, via `agvtool`,
 # all targets) in the Xcode project, archives **Debug**, and exports a **development**
@@ -30,7 +31,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJ_DIR="$ROOT"
 ARCHIVE="$ROOT/build/Set_Buddy.xcarchive"
 EXPORT="$ROOT/build/ipa"
-PLIST="$ROOT/build/ExportOptions-Development.plist"
+source "$ROOT/scripts/apple_team.sh"
+require_apple_team
+PLIST="$(export_options_with_team "$ROOT/build/ExportOptions-Development.plist")"
 
 mkdir -p "$ROOT/build"
 cd "$PROJ_DIR"
@@ -49,7 +52,8 @@ xcodebuild archive \
   -configuration Debug \
   -archivePath "$ARCHIVE" \
   -destination 'generic/platform=iOS' \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
 
 echo "==> Exporting Development .ipa…"
 rm -rf "$EXPORT"

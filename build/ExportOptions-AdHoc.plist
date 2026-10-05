@@ -4,8 +4,6 @@
 <dict>
 	<key>method</key>
 	<string>release-testing</string>
-	<key>teamID</key>
-	<string>XXXXXXXXXX</string>
 	<key>signingStyle</key>
 	<string>automatic</string>
 </dict>

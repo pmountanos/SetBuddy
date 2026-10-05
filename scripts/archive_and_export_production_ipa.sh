@@ -17,7 +17,7 @@
 #   • **Paid** Apple Developer Program (Personal Team / free accounts cannot use Ad Hoc distribution).
 #   • Xcode → Settings → Accounts → your team → Manage Certificates: create **Apple Distribution**
 #     if you do not already have one (required for Release archive + this export).
-#   • Xcode → Settings → Accounts: team XXXXXXXXXX (edit build/ExportOptions-*.plist if different).
+#   • Xcode → Settings → Accounts: signed in to your team (its ID goes in signing.local.env — see below).
 #   • Identifiers: App ID **net.mountanos.Set-Buddy** matches the Xcode target.
 # Ad-hoc: register each iPhone under https://developer.apple.com → Devices (or plug in
 #   once and build/run so Xcode registers it). Automatic signing then provisions an Ad Hoc–style profile.
@@ -32,7 +32,8 @@
 #   ./scripts/archive_and_export_production_ipa.sh ad-hoc
 #   ./scripts/archive_and_export_production_ipa.sh app-store  # → build/ipa-appstore/Set Buddy <version> (<build>) app-store.ipa
 #
-# Team ID is read from build/ExportOptions-*.plist (edit if your team changes).
+# Team ID is read from signing.local.env at the repo root (gitignored — copy signing.local.env.example)
+# or the APPLE_TEAM_ID variable; it is deliberately not stored in the project or the ExportOptions plists.
 
 set -euo pipefail
 
@@ -61,6 +62,10 @@ if [[ ! -f "$PLIST" ]]; then
 	exit 1
 fi
 
+source "$ROOT/scripts/apple_team.sh"
+require_apple_team
+PLIST="$(export_options_with_team "$PLIST")"
+
 mkdir -p "$ROOT/build"
 cd "$PROJ_DIR"
 
@@ -78,7 +83,8 @@ xcodebuild archive \
 	-configuration Release \
 	-archivePath "$ARCHIVE" \
 	-destination 'generic/platform=iOS' \
-	-allowProvisioningUpdates
+	-allowProvisioningUpdates \
+	DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
 
 echo "==> Exporting ($METHOD) .ipa…"
 rm -rf "$EXPORT"
