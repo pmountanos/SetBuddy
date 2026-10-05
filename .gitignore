@@ -35,3 +35,6 @@ captures/
 keystore/
 keystore.properties
 
+
+# React Native Android release APKs (scripts/build_mobile_android.sh)
+build/apk-mobile/
